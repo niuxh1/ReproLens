@@ -168,6 +168,9 @@ func (a *OpenAICompatibleAnalyzer) BuildPlan(ctx context.Context, claim domain.C
 	if plan.MetricSource.Kind == "" {
 		plan.MetricSource.Kind = "stdout_regex"
 	}
+	if plan.MetricSource.Key == "" {
+		plan.MetricSource.Key = plan.ExpectedMetric
+	}
 	if plan.MetricSource.Kind == "stdout_regex" && plan.MetricSource.Pattern == "" {
 		plan.MetricSource.Pattern = `(?i)` + regexp.QuoteMeta(plan.ExpectedMetric) + `\s*[:=]\s*([-+]?(?:\d+(?:\.\d*)?|\.\d+))`
 	}
