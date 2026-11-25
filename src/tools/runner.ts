@@ -3,6 +3,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { spawn } from 'node:child_process';
 
 export interface ExecutionRequest {
+  onOutput?: (stream: 'stdout' | 'stderr', text: string) => void;
   projectId: string;
   runId: string;
   workspace: string;
@@ -34,7 +35,6 @@ export interface ExecutionResult {
   gpu: boolean;
   provider?: string;
   remoteJobId?: string;
-  offerId?: string;
 }
 
 export interface Runner {
@@ -131,7 +131,16 @@ export interface ProcessOutcome {
   durationMs: number;
 }
 
-export function runProcess(binary: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs: number; signal?: AbortSignal; stdin?: string }): Promise<ProcessOutcome> {
+export interface RunProcessOptions {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  timeoutMs: number;
+  signal?: AbortSignal;
+  stdin?: string;
+  onOutput?: (stream: 'stdout' | 'stderr', text: string) => void;
+}
+
+export function runProcess(binary: string, args: string[], options: RunProcessOptions): Promise<ProcessOutcome> {
   return new Promise((resolve, reject) => {
     const startedAt = new Date().toISOString();
     const started = Date.now();
@@ -140,6 +149,9 @@ export function runProcess(binary: string, args: string[], options: { cwd?: stri
     let timedOut = false;
     let aborted = false;
     let settled = false;
+    const emit = (stream: 'stdout' | 'stderr', text: string): void => {
+      if (text) options.onOutput?.(stream, text);
+    };
     const child = spawn(binary, args, {
       cwd: options.cwd,
       env: options.env,
@@ -174,8 +186,8 @@ export function runProcess(binary: string, args: string[], options: { cwd?: stri
       child.kill('SIGKILL');
     };
     options.signal?.addEventListener('abort', onAbort, { once: true });
-    child.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
-    child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+    child.stdout?.on('data', (chunk: Buffer) => { const text = chunk.toString(); stdout += text; emit('stdout', text); });
+    child.stderr?.on('data', (chunk: Buffer) => { const text = chunk.toString(); stderr += text; emit('stderr', text); });
     child.on('error', (error) => finish(-1, error));
     child.on('close', (code) => {
       if (aborted && !timedOut) {
@@ -217,6 +229,5 @@ export async function writeRunEvidence(request: ExecutionRequest, result: Execut
     gpu: result.gpu,
     provider: result.provider,
     remote_job_id: result.remoteJobId,
-    offer_id: result.offerId,
   }, null, 2), 'utf8');
 }

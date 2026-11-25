@@ -7,6 +7,8 @@ import { createReadStream } from 'node:fs';
 import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join, relative, resolve, sep } from 'node:path';
 import { OpenAICompatibleAnalyzer } from '../agent/openai.js';
+import { buildReport } from '../tools/report.js';
+import { renderReportPage } from './report-page.js';
 import { applyRuntimeConfig, RuntimeSettings } from '../runtime.js';
 import type { ConfigPatch } from '../config.js';
 import { fileURLToPath } from 'node:url';
@@ -31,8 +33,15 @@ const createProjectBody = z.object({
 }).strict();
 
 const claimBody = z.object({ claim_ids: z.array(z.string()).min(1) }).strict();
+const claimPatchBody = z.object({
+  text: z.string().optional(),
+  metric: z.string().optional(),
+  expected_value: z.number().optional(),
+  tolerance_abs: z.number().min(0).optional(),
+}).strict();
 const approveBody = z.object({ approved_by: z.string().optional().default('local-user') }).strict();
 const rejectBody = z.object({ reason: z.string().optional().default('patch rejected by user') }).strict();
+
 
 export async function buildServer(orchestrator: Orchestrator, dataDir: string, settings?: RuntimeSettings): Promise<FastifyInstance> {
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024 });
@@ -63,6 +72,12 @@ export async function buildServer(orchestrator: Orchestrator, dataDir: string, s
     if (!body) return;
     return orchestrator.selectClaims(request.params.id, body.claim_ids);
   });
+
+  app.patch<{ Params: { id: string; claimId: string } }>('/api/v1/projects/:id/claims/:claimId', async (request, reply) => {
+    const body = parseBody(claimPatchBody, request.body, reply);
+    if (!body) return;
+    return orchestrator.updateClaim(request.params.id, request.params.claimId, body);
+  });
   app.post<{ Params: { id: string } }>('/api/v1/projects/:id/plan/confirm', async (request, reply) => {
     const project = await orchestrator.getProject(request.params.id);
     void orchestrator.confirmPlan(project.id).catch((error: Error) => app.log.error({ error }, 'confirm plan failed'));
@@ -84,6 +99,11 @@ export async function buildServer(orchestrator: Orchestrator, dataDir: string, s
   app.get<{ Params: { id: string }; Querystring: { after?: string } }>('/api/v1/projects/:id/events', async (request) => {
     return orchestrator.events(request.params.id, Number.parseInt(request.query.after ?? '0', 10) || 0);
   });
+  const eventWaiters = new Map<string, Set<() => void>>();
+  const notifyEvents = (projectId: string): void => {
+    for (const waiter of eventWaiters.get(projectId) ?? []) waiter();
+  };
+  orchestrator.onEvent((event) => notifyEvents(event.project_id));
   app.get<{ Params: { id: string }; Querystring: { after?: string } }>('/api/v1/projects/:id/events/stream', async (request, reply) => {
     const after = Number.parseInt(request.query.after ?? '0', 10) || 0;
     reply.hijack();
@@ -94,8 +114,11 @@ export async function buildServer(orchestrator: Orchestrator, dataDir: string, s
       'X-Accel-Buffering': 'no',
     });
     let closed = false;
-    request.raw.on('close', () => { closed = true; });
     let cursor = after;
+    let wake: (() => void) | null = null;
+    const waiters = new Set<() => void>();
+    eventWaiters.set(request.params.id, waiters);
+    request.raw.on('close', () => { closed = true; wake?.(); eventWaiters.delete(request.params.id); });
     while (!closed) {
       try {
         const events = await orchestrator.events(request.params.id, cursor);
@@ -103,19 +126,32 @@ export async function buildServer(orchestrator: Orchestrator, dataDir: string, s
           reply.raw.write(`id: ${event.seq}\nevent: reprolens\ndata: ${JSON.stringify(event)}\n\n`);
           cursor = event.seq;
         }
-        reply.raw.write(': keepalive\n\n');
       } catch (error) {
         reply.raw.write(`event: error\ndata: ${JSON.stringify((error as Error).message)}\n\n`);
         break;
       }
-      await sleep(1000);
+      await new Promise<void>((resolve) => {
+        wake = resolve;
+        waiters.add(resolve);
+        setTimeout(() => { waiters.delete(resolve); resolve(); }, 1000);
+      });
+      waiters.clear();
     }
     reply.raw.end();
+  });
+  app.post<{ Params: { id: string } }>('/api/v1/projects/:id/report/summarize', async (request) => {
+    return orchestrator.regenerateReportSummary(request.params.id);
   });
   app.get<{ Params: { id: string } }>('/api/v1/projects/:id/report.md', async (request, reply) => {
     const project = await orchestrator.getProject(request.params.id);
     if (!project.report) return reply.code(404).send({ error: { message: 'report is not ready' } });
     return reply.type('text/markdown; charset=utf-8').send(project.report.markdown);
+  });
+
+  app.get<{ Params: { id: string } }>('/api/v1/projects/:id/report.html', async (request, reply) => {
+    const project = await orchestrator.getProject(request.params.id);
+    if (!project.report) return reply.code(404).send({ error: { message: 'report is not ready' } });
+    return reply.type('text/html; charset=utf-8').send(renderReportPage(project, project.report));
   });
   app.get<{ Params: { id: string } }>('/api/v1/projects/:id/package', async (request, reply) => {
     const project = await orchestrator.getProject(request.params.id);
@@ -146,7 +182,7 @@ export async function buildServer(orchestrator: Orchestrator, dataDir: string, s
     return reply.send(createReadStream(target));
   });
   app.get('/api/v1/options', async () => ({
-    runners: ['auto', 'local', 'docker', 'ssh', 'colab', 'platform'],
+    runners: ['auto', 'local', 'docker', 'ssh'],
     code_agents: ['none', 'claude', 'codex', 'gemini', 'command'],
     states: ['CREATED', 'INITIALIZED', 'INGESTED', 'AWAITING_CLAIMS', 'AWAITING_PLAN', 'SANDBOX_READY', 'EXECUTING', 'AWAITING_PATCH', 'RETRYING', 'VERIFYING', 'REPORTING', 'COMPLETED', 'FAILED', 'STOPPED'],
     model_presets: [
@@ -170,6 +206,8 @@ export async function buildServer(orchestrator: Orchestrator, dataDir: string, s
       return reply.code(400).send({ error: { message: (error as Error).message } });
     }
   });
+
+
 
   app.post('/api/v1/settings/test-llm', async (_request, reply) => {
     if (!settings) return reply.code(503).send({ error: { message: 'runtime settings are unavailable' } });
@@ -248,8 +286,4 @@ function parseBody<T>(schema: z.ZodType<T>, raw: unknown, reply: FastifyReply): 
     return null;
   }
   return result.data;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

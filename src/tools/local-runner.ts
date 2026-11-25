@@ -18,6 +18,7 @@ export class LocalRunner implements Runner {
       env: { ...process.env, ...env },
       timeoutMs: request.timeoutMs > 0 ? request.timeoutMs : 120_000,
       signal: request.signal,
+      onOutput: request.onOutput,
     });
     const result: ExecutionResult = {
       runner: this.name(),

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { buildServer } from '../src/httpapi/server.js';
 import { Orchestrator } from '../src/orchestrator/orchestrator.js';
 import { MemoryStore } from '../src/store/memory-store.js';
@@ -76,5 +76,26 @@ describe('project evidence preview', () => {
     expect([400, 404]).toContain(escaped.statusCode);
     const missing = await server.inject({ method: 'GET', url: `/api/v1/projects/${project.id}/evidence/missing.png` });
     expect(missing.statusCode).toBe(404);
+  });
+});
+
+describe('streaming execution transcript', () => {
+  it('emits stdout chunks while a command is running', async () => {
+    const server = await app();
+    const created = await server.inject({ method: 'POST', url: '/api/v1/projects', payload: { paper_path: resolve('assets/demo/paper.md'), repo_path: resolve('assets/demo/repo') } });
+    const project = created.json() as { id: string };
+    await server.inject({ method: 'POST', url: `/api/v1/projects/${project.id}/start`, payload: {} });
+    await server.inject({ method: 'POST', url: `/api/v1/projects/${project.id}/claims`, payload: { claim_ids: ['C1'] } });
+    await server.inject({ method: 'POST', url: `/api/v1/projects/${project.id}/plan/confirm`, payload: {} });
+    let events: Array<{ type: string; data?: Record<string, unknown> }> = [];
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      events = (await server.inject({ method: 'GET', url: `/api/v1/projects/${project.id}/events` })).json() as typeof events;
+      if (events.some((event) => event.type === 'run_completed') && events.some((event) => event.type === 'run_output')) break;
+    }
+
+    expect(events.some((event) => event.type === 'run_started')).toBe(true);
+    expect(events.some((event) => event.type === 'run_output')).toBe(true);
+    expect(events.some((event) => event.type === 'run_completed')).toBe(true);
   });
 });

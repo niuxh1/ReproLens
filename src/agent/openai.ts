@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import type { Analyzer } from './analyzer.js';
-import type { Claim, Diagnosis, ExperimentPlan, Paper, RepoSummary, Run } from '../domain/types.js';
+import type { AgentReportSummary, Claim, Diagnosis, Event, ExperimentPlan, Paper, Project, RepoSummary, Run } from '../domain/types.js';
 
 export interface OpenAIAnalyzerOptions {
   baseURL: string;
@@ -187,6 +187,47 @@ export class OpenAICompatibleAnalyzer implements Analyzer {
       ...(patchDiff.startsWith('--- a/') ? { patch_diff: patchDiff } : {}),
       ...(raw.explanation ? { explanation: raw.explanation } : {}),
       ...(raw.needs_code_agent ? { needs_code_agent: true } : {}),
+    };
+  }
+
+  async summarizeReport(project: Project, events: Event[]): Promise<AgentReportSummary> {
+    const verification = project.verification;
+    const selectedClaims = (project.claims ?? []).filter((claim) => claim.selected);
+    const context = {
+      project: { id: project.id, name: project.name, state: project.state, paper_title: project.paper.title },
+      rule_verdict: verification?.verdict ?? null,
+      verification: verification ?? null,
+      selected_claims: selectedClaims,
+      plans: project.plans ?? [],
+      runs: (project.runs ?? []).map((run) => ({
+        attempt: run.attempt, status: run.status, exit_code: run.exit_code, runner: run.runner, gpu: run.gpu,
+        duration_ms: run.duration_ms, metric: run.metric ?? null, failure_class: run.failure_class ?? null,
+      })),
+      patch: project.patch ? { status: project.patch.status, files: project.patch.files, approved_by: project.patch.approved_by ?? null } : null,
+      evidence: {
+        paper_pages: (project.paper.pages ?? []).filter((page) => page.image_path).length,
+        visuals: project.paper.visuals?.length ?? 0,
+        event_count: events.length,
+        run_output_blocks: events.filter((event) => event.type === 'run_output').length,
+      },
+    };
+    const prompt = [
+      '你是 ReproLens 的主 Agent，请用中文撰写实验报告的“主 Agent 总结”。',
+      '必须严格依据下面的 JSON 事实，不得编造论文结论、数据、指标或未执行的实验。',
+      '规则核验结论是唯一有效的最终 verdict，必须原样引用，不能重新计算、覆盖或暗示模型拥有裁决权。',
+      '输出 Markdown，使用以下二级标题：## 主 Agent 总结，并包含 ### 实验目的、### 执行过程、### 结果与论文一致性、### 证据基础、### 限制与后续建议。',
+      '文字要专业、简洁、可审计；明确说明模型总结不替代原始证据。',
+      `事实 JSON：\n${JSON.stringify(context, null, 2)}`,
+    ].join('\n\n');
+    const content = await this.chat('你是严谨的科研复现报告编辑。只输出中文 Markdown，不得修改确定性核验结论。', prompt);
+    const markdown = content.replace(/^```(?:markdown|md)?\s*/i, '').replace(/\s*```$/, '').trim();
+    if (!markdown) throw new Error('LLM returned an empty report summary');
+    return {
+      markdown,
+      model: this.model,
+      generated_at: new Date().toISOString(),
+      source: 'model',
+      ...(verification ? { verdict: verification.verdict } : {}),
     };
   }
 

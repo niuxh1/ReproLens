@@ -3,7 +3,8 @@ import { icon, mountIcons } from './icons.js';
 const state = {
   view: 'overview', projects: [], current: null, options: null, settings: null,
   events: [], stream: null, pollTimer: null, commandIndex: 0, commands: [],
-  filter: 'all', projectTab: 'workflow', settingsTab: 'model', sidebarCollapsed: false,
+  filter: 'all', projectTab: 'transcript', settingsTab: 'model', sidebarCollapsed: false, autoscroll: true,
+
   theme: localStorage.getItem('reprolens-theme') || 'light',
 };
 
@@ -23,13 +24,13 @@ const STAGE_MAP = {
   REPORTING: 5, COMPLETED: 5, FAILED: 5, STOPPED: 5,
 };
 const STAGES = ['材料摄取', '主张选择', '计划确认', '受控执行', '规则核验', '证据交付'];
-const RUNNER_LABELS = { auto: '自动选择', local: '本机运行', docker: 'Docker', ssh: 'SSH 主机', colab: '算力平台', platform: '通用平台' };
+const RUNNER_LABELS = { auto: '自动选择', local: '本机运行', docker: 'Docker', ssh: 'SSH 主机' };
 const CODE_AGENT_LABELS = { none: '关闭', codex: 'Codex CLI', claude: 'Claude Code', gemini: 'Gemini CLI', command: '自定义命令' };
 const VIEWS = ['overview', 'projects', 'new-run', 'project', 'settings', 'docs'];
 
 document.addEventListener('DOMContentLoaded', () => { void boot(); });
 window.addEventListener('hashchange', () => {
-  const view = location.hash.slice(1);
+  if (location.hash.startsWith('#project/')) { void openProject(location.hash.slice('#project/'.length), false); return; }
   if (VIEWS.includes(view) && view !== state.view && view !== 'project') setView(view);
 });
 
@@ -39,7 +40,7 @@ async function boot() {
   mountIcons();
   await Promise.allSettled([checkHealth(), loadOptions(), loadSettings(), loadProjects()]);
   const initialView = location.hash.slice(1);
-  if (VIEWS.includes(initialView) && initialView !== 'project') setView(initialView);
+  if (initialView.startsWith('project/')) { await openProject(initialView.slice('project/'.length), false); return; }
   if (state.projects.length && !initialView) {
     const active = state.projects.find((project) => !TERMINAL_STATES.has(project.state)) ?? state.projects[0];
     if (active && active.state !== 'CREATED') await openProject(active.id, false);
@@ -60,6 +61,8 @@ function bindGlobalEvents() {
     if (settingsTab) { event.preventDefault(); setSettingsTab(settingsTab.dataset.settingsTab); return; }
     const filterButton = event.target.closest('[data-filter]');
     if (filterButton) { state.filter = filterButton.dataset.filter; renderProjects(); return; }
+    const editClaimButton = event.target.closest('[data-edit-claim]');
+    if (editClaimButton) { event.preventDefault(); openClaimEditor(editClaimButton.dataset.editClaim); return; }
     const pageButton = event.target.closest('[data-preview-page]');
     if (pageButton) { event.preventDefault(); previewPage(Number(pageButton.dataset.previewPage)); return; }
     const logButton = event.target.closest('[data-preview-log]');
@@ -91,10 +94,10 @@ function bindGlobalEvents() {
   $('#approve-patch-button').addEventListener('click', () => void projectAction('approve'));
   $('#reject-patch-button').addEventListener('click', () => void projectAction('reject'));
   $('#copy-diff-button').addEventListener('click', copyDiff);
+  $('#regenerate-report-summary').addEventListener('click', () => void regenerateReportSummary());
   $('#save-settings-button').addEventListener('click', () => void saveSettings());
   $('#test-llm-button').addEventListener('click', () => void testLLM());
   $('#settings-llm-preset').addEventListener('change', applyModelPreset);
-  $('#settings-runner').addEventListener('change', () => setSettingsTab('compute'));
   $('#close-preview').addEventListener('click', closePreview);
   $('#preview-dialog').addEventListener('click', (event) => { if (event.target === $('#preview-dialog')) closePreview(); });
   $('#command-dialog').addEventListener('click', (event) => { if (event.target === $('#command-dialog')) closeCommandPalette(); });
@@ -132,7 +135,8 @@ function setView(view) {
   if (view === 'overview') renderOverview();
   if (view === 'projects') renderProjects();
   if (view === 'settings') fillSettingsForm();
-  if (location.hash !== `#${view}`) history.replaceState(null, '', `#${view}`);
+  const targetHash = view === 'project' && state.current ? '#project/' + state.current.id : '#' + view;
+  if (location.hash !== targetHash) history.replaceState(null, '', targetHash);
   closeMobileNav();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -177,7 +181,7 @@ async function loadOptions() {
 }
 async function loadSettings() {
   try { state.settings = await api('/api/v1/settings'); fillSettingsForm(); renderRuntimeConfig(); }
-  catch { state.settings = null; renderRuntimeConfig(); }
+  catch (error) { console.error('loadSettings failed', error); state.settings = null; renderRuntimeConfig(); }
 }
 async function loadProjects() {
   try {
@@ -213,7 +217,7 @@ async function openProject(id, announce = true) {
     if (state.stream) { state.stream.close(); state.stream = null; }
     state.current = await api(`/api/v1/projects/${id}`);
     state.events = await api(`/api/v1/projects/${id}/events`);
-    state.projectTab = 'workflow';
+    state.projectTab = 'transcript';
     setView('project');
     renderProject();
     subscribeProjectEvents(id);
@@ -342,6 +346,7 @@ function renderProject() {
   renderEvidence(project);
   renderContext(project);
   renderEvents();
+  renderTranscript();
   setProjectTab(state.projectTab, false);
 }
 
@@ -352,7 +357,7 @@ function renderProjectActions(project) {
   if (project.state === 'AWAITING_PLAN') actions.push('<button class="button primary small" data-project-action="confirm" type="button"><span data-icon="play"></span>确认并执行</button>');
   if (project.state === 'AWAITING_PATCH') actions.push('<button class="button secondary small" data-project-action="approve" type="button"><span data-icon="check"></span>批准补丁</button>', '<button class="button danger small" data-project-action="reject" type="button">拒绝</button>');
   if (ACTIVE_STATES.has(project.state)) actions.push('<button class="button secondary small" data-project-action="stop" type="button"><span data-icon="pause"></span>停止</button>');
-  if (project.report?.markdown) actions.push('<a class="button secondary small" href="/api/v1/projects/' + encodeURIComponent(project.id) + '/report.md" target="_blank" rel="noreferrer">查看报告</a>');
+  if (project.report?.markdown) actions.push('<a class="button secondary small" href="/api/v1/projects/' + encodeURIComponent(project.id) + '/report.html" target="_blank" rel="noreferrer">查看报告</a>');
   if (project.report?.package_path) actions.push('<a class="button primary small" href="/api/v1/projects/' + encodeURIComponent(project.id) + '/package"><span data-icon="download"></span>证据包</a>');
   $('#project-actions').innerHTML = actions.join('');
   $$('[data-project-action]').forEach((button) => button.addEventListener('click', () => void projectAction(button.dataset.projectAction)));
@@ -375,7 +380,7 @@ function renderClaims(project) {
   $('#claims-list').innerHTML = claims.length ? claims.map((claim) => `<label class="claim-row">
     <input type="checkbox" data-claim-id="${escapeAttr(claim.claim_id)}" ${claim.selected ? 'checked' : ''} ${canSelect ? '' : 'disabled'}>
     <span class="claim-content"><strong>${escapeHtml(claim.claim_id)} · ${escapeHtml(claim.metric)}</strong><p>${escapeHtml(claim.text)}</p><small>${escapeHtml(claim.source?.path || '')}:${claim.source?.line || 0} · abs tolerance ${claim.tolerance?.abs ?? 0}</small></span>
-    <span class="claim-value"><strong>${formatNumber(claim.expected_value)}</strong><span>expected</span></span>
+    <span class="claim-value"><strong>${formatNumber(claim.expected_value)}</strong><span>expected</span>${canSelect ? `<button class="claim-edit" data-edit-claim="${escapeAttr(claim.claim_id)}" type="button">校正</button>` : ''}</span>
   </label>`).join('') : '<div class="empty-state compact">开始材料摄取后显示论文中的可测主张。</div>';
 }
 
@@ -442,7 +447,7 @@ function renderPaperPages(project) {
 function renderEvidence(project) {
   const rows = [];
   if (project.paper?.source_path) rows.push({ icon: 'file', title: '原始论文', note: project.paper.source_path, href: null });
-  if (project.report?.markdown) rows.push({ icon: 'file', title: 'Markdown 复现报告', note: '规则结论、运行记录与事件链', href: `/api/v1/projects/${encodeURIComponent(project.id)}/report.md` });
+  if (project.report?.markdown) rows.push({ icon: 'file', title: '中文实验报告', note: '文档视图，支持打印与导出 PDF', href: `/api/v1/projects/${encodeURIComponent(project.id)}/report.html` });
   if (project.report?.package_path) rows.push({ icon: 'download', title: '下载复现证据包', note: '报告、日志、补丁、原始 PDF 与页面图像', href: `/api/v1/projects/${encodeURIComponent(project.id)}/package` });
   if (project.patch?.diff) rows.push({ icon: 'code', title: `补丁 · ${project.patch.status}`, note: project.patch.files?.join(', ') || '代码变更', href: null });
   $('#evidence-content').innerHTML = rows.length ? rows.map((row) => `<div class="evidence-row"><span class="evidence-icon"><span data-icon="${row.icon}"></span></span><span class="evidence-copy"><strong>${escapeHtml(row.title)}</strong><small>${escapeHtml(row.note)}</small></span>${row.href ? `<a class="button secondary small" href="${row.href}" ${row.href.endsWith('.md') ? 'target="_blank" rel="noreferrer"' : ''}>打开<span data-icon="arrow"></span></a>` : '<span class="status-badge">已归档</span>'}</div>`).join('') : '<div class="empty-state compact">完成核验后生成报告与证据包。</div>';
@@ -471,14 +476,139 @@ function renderEvents() {
 }
 
 function setProjectTab(tab, scroll = true) {
-  state.projectTab = ['workflow', 'paper', 'runs', 'evidence'].includes(tab) ? tab : 'workflow';
+  state.projectTab = ['transcript', 'workflow', 'paper', 'runs', 'evidence', 'report'].includes(tab) ? tab : 'transcript';
   $$('[data-project-tab]').forEach((button) => {
     const active = button.dataset.projectTab === state.projectTab;
     button.classList.toggle('active', active);
     button.setAttribute('aria-selected', String(active));
   });
   $$('[data-project-tab-panel]').forEach((panel) => panel.classList.toggle('active', panel.dataset.projectTabPanel === state.projectTab));
+  if (state.projectTab === 'report' && state.current) {
+    const frame = $('#report-frame');
+    const url = `/api/v1/projects/${encodeURIComponent(state.current.id)}/report.html`;
+    if (frame && frame.getAttribute('src') !== url) frame.setAttribute('src', url);
+    const link = $('#report-open-link');
+    if (link) link.href = url;
+  }
   if (scroll) $('#main-content').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+const EVENT_META = {
+  project_created: { icon: 'circle', label: '创建项目' },
+  repository_copied: { icon: 'folder', label: '复制代码仓库' },
+  claims_extracted: { icon: 'file', label: '提取实验主张' },
+  plans_ready: { icon: 'list', label: '生成实验计划' },
+  sandbox_ready: { icon: 'shield', label: '准备执行环境' },
+  state_changed: { icon: 'activity', label: '状态转移' },
+  run_started: { icon: 'play', label: '启动实验' },
+  run_output: { icon: 'terminal', label: '进程输出' },
+  run_completed: { icon: 'check', label: '实验结束' },
+  metric_unavailable: { icon: 'alert', label: '指标不可用' },
+  diagnosis_completed: { icon: 'flask', label: '故障诊断' },
+  code_agent_proposed: { icon: 'code', label: '代码 Agent 产出补丁' },
+  patch_proposed: { icon: 'code', label: '等待补丁审批' },
+  patch_approved: { icon: 'check', label: '人工批准补丁' },
+  patch_applied: { icon: 'check', label: '应用补丁' },
+  patch_rejected: { icon: 'x', label: '拒绝补丁' },
+  metric_verified: { icon: 'check', label: '规则核验完成' },
+  report_summary_started: { icon: 'spark', label: '主 Agent 总结中' },
+  report_summary_generated: { icon: 'check', label: '主 Agent 总结完成' },
+  report_summary_fallback: { icon: 'alert', label: '主 Agent 总结回退' },
+  report_generated: { icon: 'evidence', label: '生成证据报告' },
+  workflow_failed: { icon: 'alert', label: '工作流失败' },
+  workflow_stopped: { icon: 'pause', label: '工作流停止' },
+  stop_requested: { icon: 'pause', label: '请求停止' },
+};
+
+function renderTranscript() {
+  const container = $('#transcript');
+  if (!container) return;
+  const events = [...state.events].sort((a, b) => a.seq - b.seq);
+  if (!events.length) {
+    container.innerHTML = '<div class="empty-state compact">开始执行后，Agent 的完整过程会在这里实时展开。</div>';
+    return;
+  }
+  const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 40;
+  container.innerHTML = groupTranscriptEvents(events).map((event) => transcriptEntry(event)).join('');
+  if (state.autoscroll && atBottom) container.scrollTop = container.scrollHeight;
+  const running = state.current && ACTIVE_STATES.has(state.current.state);
+  const live = $('#transcript-live');
+  if (live) live.hidden = !running;
+  const status = $('#transcript-status');
+  if (status) status.textContent = running ? '正在执行' : TERMINAL_STATES.has(state.current?.state) ? '执行已结束' : '等待执行';
+  mountIcons(container);
+}
+
+
+function groupTranscriptEvents(events) {
+  const grouped = [];
+  for (const event of events) {
+    const last = grouped[grouped.length - 1];
+    const sameOutput = event.type === 'run_output' && last && last.type === 'run_output'
+      && last.data?.run_id === event.data?.run_id
+      && last.data?.stream === event.data?.stream;
+    if (sameOutput) {
+      last.message += '\n' + event.message;
+      last.lastSeq = event.seq;
+      last.created_at = event.created_at;
+      last.count = (last.count ?? 1) + 1;
+      continue;
+    }
+    grouped.push({ ...event, lastSeq: event.seq, count: 1 });
+  }
+  return grouped;
+}
+function transcriptEntry(event) {
+  const meta = EVENT_META[event.type] || { icon: 'circle', label: event.type };
+  const data = event.data || {};
+  const output = event.type === 'run_output';
+  const body = [];
+  if (event.type === 'run_started') {
+    body.push(`<span class="transcript-command">${icon('terminal')}${escapeHtml(String(data.command || ''))}</span>`);
+    body.push(`<div class="transcript-meta"><span>attempt ${data.attempt ?? 1}</span><span>${escapeHtml(String(data.runner || ''))}</span><span>seed ${data.seed ?? '—'}</span></div>`);
+  } else if (output) {
+    body.push(`<span class="transcript-output ${data.stream === 'stderr' ? 'stderr' : ''}">${escapeHtml(event.message.replace(/\u00a0/g, ' '))}</span>`);
+  } else if (event.type === 'run_completed') {
+    body.push(`<div class="transcript-meta"><span>${escapeHtml(String(data.status || ''))}</span><span>exit ${data.exit_code ?? '—'}</span><span>${data.duration_ms ?? 0} ms</span></div>`);
+  } else if (event.type === 'metric_verified') {
+    body.push(`<div class="transcript-meta"><span>${escapeHtml(String(data.verdict || ''))}</span><span>expected ${formatNumber(data.expected)}</span><span>observed ${formatNumber(data.observed)}</span></div>`);
+  } else if (event.type === 'diagnosis_completed') {
+    body.push(`<div class="transcript-meta"><span>${escapeHtml(String(data.failure_class || ''))}</span><span>confidence ${escapeHtml(String(data.confidence || ''))}</span></div>`);
+  } else if (event.type !== 'state_changed' && event.message && event.message !== meta.label) {
+    body.push(`<div class="transcript-body">${escapeHtml(event.message)}</div>`);
+  }
+  return `<div class="transcript-entry ${escapeAttr(event.type)}">
+    <span class="transcript-icon">${icon(meta.icon)}</span>
+    <div class="transcript-content">
+      <div class="transcript-head"><strong>${escapeHtml(meta.label)}</strong><span>#${event.seq}${event.lastSeq && event.lastSeq !== event.seq ? '–' + event.lastSeq : ''}</span>${event.count > 1 ? `<span>${event.count} 个流式块</span>` : ''}<span class="transcript-time">${formatTime(event.created_at)}</span></div>
+      ${body.join('')}
+    </div>
+  </div>`;
+}
+
+function formatTime(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString('zh-CN', { hour12: false });
+}
+async function regenerateReportSummary() {
+  if (!state.current?.report) return toast('报告尚未生成', 'error');
+  const button = $('#regenerate-report-summary');
+  const original = button.innerHTML;
+  button.disabled = true;
+  button.textContent = '主 Agent 正在总结…';
+  try {
+    state.current = await api(`/api/v1/projects/${encodeURIComponent(state.current.id)}/report/summarize`, { method: 'POST', body: '{}' });
+    const frame = $('#report-frame');
+    if (frame) frame.src = `/api/v1/projects/${encodeURIComponent(state.current.id)}/report.html?t=${Date.now()}`;
+    renderProjectActions(state.current);
+    toast('主 Agent 总结已更新，报告与证据包已重新生成', 'ok');
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    button.disabled = false;
+    button.innerHTML = original;
+    mountIcons(button);
+  }
 }
 
 async function projectAction(action) {
@@ -535,11 +665,46 @@ function subscribeProjectEvents(projectId) {
   const stream = new EventSource(`/api/v1/projects/${encodeURIComponent(projectId)}/events/stream?after=${after}`);
   state.stream = stream;
   stream.addEventListener('reprolens', (event) => {
-    try { const parsed = JSON.parse(event.data); if (!state.events.some((item) => item.seq === parsed.seq)) state.events.push(parsed); renderEvents(); }
+    try { const parsed = JSON.parse(event.data); if (!state.events.some((item) => item.seq === parsed.seq)) state.events.push(parsed); renderEvents(); renderTranscript(); }
     catch { /* ignore malformed SSE */ }
   });
 }
 
+
+function openClaimEditor(claimId) {
+  const claim = state.current?.claims?.find((item) => item.claim_id === claimId);
+  if (!claim) return;
+  $('#preview-overline').textContent = 'CLAIM REVIEW';
+  $('#preview-title').textContent = `校正研究主张 · ${claim.claim_id}`;
+  $('#preview-body').innerHTML = `<form class="claim-editor" id="claim-editor-form">
+    <div class="field full"><label for="claim-editor-text">主张原文</label><input id="claim-editor-text" value="${escapeAttr(claim.text)}"></div>
+    <div class="field"><label for="claim-editor-metric">指标</label><input id="claim-editor-metric" value="${escapeAttr(claim.metric)}"></div>
+    <div class="field"><label for="claim-editor-expected">期望值</label><input id="claim-editor-expected" type="number" step="any" value="${claim.expected_value}"></div>
+    <div class="field"><label for="claim-editor-tolerance">绝对容差</label><input id="claim-editor-tolerance" type="number" step="any" min="0" value="${claim.tolerance?.abs ?? 0}"></div>
+    <p class="claim-editor-note">论文抽取可能受表格排版影响。研究员确认后的期望值与容差将作为规则核验的唯一依据；模型无法修改该值。</p>
+  </form>`;
+  $('#preview-footer').innerHTML = '<button class="button primary small" id="save-claim-button" type="button">保存并确认主张</button><button class="button secondary small" id="cancel-claim-button" type="button">取消</button>';
+  $('#preview-dialog').showModal();
+  $('#save-claim-button').addEventListener('click', () => void saveClaimEditor(claim.claim_id));
+  $('#cancel-claim-button').addEventListener('click', closePreview);
+}
+
+async function saveClaimEditor(claimId) {
+  try {
+    state.current = await api(`/api/v1/projects/${state.current.id}/claims/${encodeURIComponent(claimId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        text: $('#claim-editor-text').value,
+        metric: $('#claim-editor-metric').value,
+        expected_value: Number($('#claim-editor-expected').value),
+        tolerance_abs: Number($('#claim-editor-tolerance').value),
+      }),
+    });
+    closePreview();
+    renderProject();
+    toast('主张已确认，可用于生成实验计划', 'ok');
+  } catch (error) { toast(error.message, 'error'); }
+}
 function previewPage(pageNumber) {
   if (!state.current) return;
   $('#preview-overline').textContent = 'PAPER VISUAL EVIDENCE';
@@ -623,7 +788,6 @@ function refreshRunnerFields() {
   $('#local-fields').hidden = runner !== 'auto' && runner !== 'local';
   $('#docker-fields').hidden = runner !== 'docker';
   $('#ssh-fields').hidden = runner !== 'ssh';
-  $('#platform-fields').hidden = runner !== 'colab' && runner !== 'platform';
   refreshNewRunChecks();
 }
 
@@ -666,7 +830,6 @@ async function createProject() {
       codeAgent: { type: codeAgentEnabled ? $('#code-agent-select').value : 'none', command: codeAgentEnabled ? $('#code-agent-command').value.trim() : '' },
     };
     if (runner === 'ssh') patch.remote = { host: $('#ssh-host').value.trim(), port: Number($('#ssh-port').value), identity: $('#ssh-identity').value.trim(), baseDir: $('#ssh-base-dir').value.trim() };
-    if (runner === 'colab' || runner === 'platform') patch.platform = { baseURL: $('#platform-base-url').value.trim(), apiKey: $('#platform-api-key').value.trim(), provider: $('#platform-provider').value.trim(), image: $('#platform-image').value.trim(), gpuType: $('#platform-gpu-type').value.trim(), minVRAMGB: Number($('#platform-min-vram').value), maxHourlyUSD: Number($('#platform-max-price').value), pollIntervalMs: Number($('#platform-poll').value) };
     try { state.settings = await api('/api/v1/settings', { method: 'PUT', body: JSON.stringify(patch) }); } catch (error) { toast(`运行环境未应用：${error.message}`, 'error'); return; }
     const project = await api('/api/v1/projects', { method: 'POST', body: JSON.stringify({ name: $('#project-name-input').value.trim(), paper_path: paperPath, repo_path: repoPath, data_path: $('#data-path').value.trim(), budget: { max_runs: Number($('#max-runs').value), max_seconds: Number($('#max-seconds').value), max_patches: Number($('#max-patches').value) } }) });
     state.current = await api(`/api/v1/projects/${project.id}/start`, { method: 'POST', body: '{}' });
@@ -677,7 +840,7 @@ async function createProject() {
 }
 
 function setSettingsTab(tab) {
-  state.settingsTab = ['model', 'execution', 'compute'].includes(tab) ? tab : 'model';
+  state.settingsTab = ['model', 'execution'].includes(tab) ? tab : 'model';
   $$('[data-settings-tab]').forEach((button) => button.classList.toggle('active', button.dataset.settingsTab === state.settingsTab));
   $$('[data-settings-panel]').forEach((panel) => panel.classList.toggle('active', panel.dataset.settingsPanel === state.settingsTab));
 }
@@ -700,15 +863,6 @@ function fillSettingsForm() {
   $('#settings-ssh-port').value = settings.remote?.port || 22;
   $('#settings-ssh-identity').value = settings.remote?.identity || '';
   $('#settings-ssh-base-dir').value = settings.remote?.baseDir || '/tmp/reprolens';
-  $('#settings-platform-url').value = settings.platform?.baseURL || '';
-  $('#settings-platform-key').value = '';
-  $('#settings-platform-provider').value = settings.platform?.provider || 'colab';
-  $('#settings-platform-image').value = settings.platform?.image || 'python:3.11-slim';
-  $('#settings-platform-gpu').value = settings.platform?.gpuType || '';
-  $('#settings-platform-vram').value = settings.platform?.minVRAMGB || 16;
-  $('#settings-platform-price').value = settings.platform?.maxHourlyUSD ?? 0.5;
-  $('#settings-platform-poll').value = settings.platform?.pollIntervalMs || 2000;
-  $('#settings-platform-timeout').value = settings.platform?.timeoutMs || 1800000;
   $('#settings-model-state').textContent = settings.llm?.baseURL ? `${settings.llm.model} · 已配置` : '未配置模型';
 }
 
@@ -735,12 +889,6 @@ async function saveSettings() {
       },
       codeAgent: { type: $('#settings-code-agent').value, command: $('#settings-code-command').value.trim(), timeoutMs: Number($('#settings-code-timeout').value), runAcceptance: $('#settings-code-acceptance').checked },
       remote: { host: $('#settings-ssh-host').value.trim(), port: Number($('#settings-ssh-port').value), identity: $('#settings-ssh-identity').value.trim(), baseDir: $('#settings-ssh-base-dir').value.trim() },
-      platform: {
-        baseURL: $('#settings-platform-url').value.trim(), provider: $('#settings-platform-provider').value.trim(), image: $('#settings-platform-image').value.trim(),
-        gpuType: $('#settings-platform-gpu').value.trim(), minVRAMGB: Number($('#settings-platform-vram').value), maxHourlyUSD: Number($('#settings-platform-price').value),
-        pollIntervalMs: Number($('#settings-platform-poll').value), timeoutMs: Number($('#settings-platform-timeout').value),
-        ...(($('#settings-platform-key').value || '').trim() ? { apiKey: $('#settings-platform-key').value.trim() } : {}),
-      },
     };
     state.settings = await api('/api/v1/settings', { method: 'PUT', body: JSON.stringify(patch) });
     fillSettingsForm(); renderRuntimeConfig();

@@ -62,7 +62,6 @@ The official run also reported `max_val_acc=0.996993`.
 ## Other validated execution paths
 
 - **WSL SSH host**: real scp + ssh deployment to a non-root dropbear server; output included `SSH_DEPLOY_OK` and the WSL-visible RTX 4060.
-- **Colab-style rental platform**: in-process mock platform selected a T4 offer, uploaded the workspace, submitted and polled a job, returned a seed mismatch, accepted a human-approved patch, retried, and produced `PASS`.
 - **CodeAgent**: a real Codex CLI invocation in a disposable workspace changed `accuracy=0.50` to `accuracy=0.81`, ran the acceptance command, and returned a git-compatible diff. The diff was not applied directly; it remained a proposal.
 
 ## Reproduce

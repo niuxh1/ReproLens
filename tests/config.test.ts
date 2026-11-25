@@ -19,14 +19,12 @@ describe('configuration', () => {
       'REPROLENS_LLM_API_KEY=test-key',
       'REPROLENS_LLM_MODEL=deepseek-v4.1-flash',
       'REPROLENS_LLM_VISION=true',
-      'REPROLENS_PLATFORM_POLL_INTERVAL=2s',
     ].join('\n'));
     const cfg = await loadConfig(envPath);
     expect(cfg.addr).toBe('127.0.0.1:8080');
     expect(cfg.llm.baseURL).toBe('http://127.0.0.1:8788/v1');
     expect(cfg.llm.model).toBe('deepseek-v4.1-flash');
     expect(cfg.llm.vision).toBe(true);
-    expect(cfg.platform.pollIntervalMs).toBe(2000);
     await rm(dir, { recursive: true, force: true });
   });
 

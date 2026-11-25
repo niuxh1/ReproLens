@@ -2,6 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import type { Analyzer } from '../agent/analyzer.js';
+import { HeuristicAnalyzer } from '../agent/heuristic.js';
+import type { AgentReportSummary } from '../domain/types.js';
 import type { CodeAgent, CodeAgentResult } from '../codeagent/code-agent.js';
 import type { Budget, Claim, Diagnosis, Event, ExperimentPlan, Paper, Project, RepoSummary, Run } from '../domain/types.js';
 import { canTransition, isTerminal, validateTransition, type Action } from '../domain/state.js';
@@ -105,6 +107,33 @@ export class Orchestrator {
     }
   }
 
+
+  async updateClaim(projectId: string, claimId: string, patch: { text?: string; metric?: string; expected_value?: number; tolerance_abs?: number }): Promise<Project> {
+    const job = this.beginJob(projectId);
+    try {
+      const project = await this.getProject(projectId);
+      if (project.state !== 'AWAITING_CLAIMS') throw new Error(`claim editing requires AWAITING_CLAIMS state, got ${project.state}`);
+      const claim = project.claims?.find((item) => item.claim_id.toUpperCase() === claimId.toUpperCase());
+      if (!claim) throw new Error(`claim not found: ${claimId}`);
+      if (patch.text !== undefined) claim.text = patch.text.trim();
+      if (patch.metric !== undefined) claim.metric = patch.metric.trim().toLowerCase();
+      if (patch.expected_value !== undefined) {
+        if (!Number.isFinite(patch.expected_value)) throw new Error('expected_value must be finite');
+        claim.expected_value = patch.expected_value;
+      }
+      if (patch.tolerance_abs !== undefined) {
+        if (!Number.isFinite(patch.tolerance_abs) || patch.tolerance_abs < 0) throw new Error('tolerance must be non-negative');
+        claim.tolerance = { ...claim.tolerance, abs: patch.tolerance_abs };
+      }
+      await this.save(project);
+      await this.appendEvent(project.id, 'claim_updated', `researcher confirmed claim ${claim.claim_id}`, {
+        claim_id: claim.claim_id, expected_value: claim.expected_value, tolerance_abs: claim.tolerance.abs, metric: claim.metric,
+      });
+      return project;
+    } finally {
+      job.done();
+    }
+  }
   async selectClaims(projectId: string, claimIds: string[]): Promise<Project> {
     const job = this.beginJob(projectId);
     try {
@@ -232,6 +261,27 @@ export class Orchestrator {
     return this.store.listEvents(projectId, after);
   }
 
+  async regenerateReportSummary(projectId: string): Promise<Project> {
+    const job = this.beginJob(projectId);
+    try {
+      const project = await this.getProject(projectId);
+      if (!project.report) throw new Error('report is not ready');
+      const events = await this.store.listEvents(project.id, 0);
+      await this.appendEvent(project.id, 'report_summary_started', 'main agent is summarizing the evidence report');
+      const agentSummary = await this.generateAgentSummary(project, events);
+      const report = await buildReport(project, events, agentSummary);
+      report.package_path = await exportPackage(project, report, events);
+      project.report = report;
+      await this.save(project);
+      await this.appendEvent(project.id, 'report_summary_generated', 'main agent report summary generated', {
+        model: agentSummary.model, source: agentSummary.source, verdict: agentSummary.verdict ?? null,
+      });
+      return project;
+    } finally {
+      job.done();
+    }
+  }
+
   private async executePlans(project: Project, signal: AbortSignal): Promise<Project> {
     while ((project.current_plan_index ?? 0) < (project.plans?.length ?? 0)) {
       if (signal.aborted || project.stop_requested) return this.stopProject(project.id);
@@ -314,18 +364,55 @@ export class Orchestrator {
   private async runPlan(project: Project, plan: ExperimentPlan, signal: AbortSignal): Promise<{ run: Run; diagnosis: Diagnosis | null }> {
     if ((project.runs?.length ?? 0) >= project.budget.max_runs) throw new Error(`run budget exhausted after ${project.runs?.length ?? 0} attempt(s)`);
     const runId = newId('run');
+    const attempt = (project.runs?.length ?? 0) + 1;
+    await this.appendEvent(project.id, 'run_started', `starting experiment attempt ${attempt}`, {
+      run_id: runId, attempt, command: plan.command, runner: this.runner.name(), seed: plan.seed,
+    });
+    let stdoutBuffer = '';
+    let stderrBuffer = '';
+    let flushTimer: NodeJS.Timeout | null = null;
+    let flushChain: Promise<void> = Promise.resolve();
+    const cleanOutput = (text: string): string => text.replace(/\r\n?/g, '\n').trimEnd();
+    const flushOutput = (): Promise<void> => {
+      if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+      const chunks: Array<{ stream: 'stdout' | 'stderr'; text: string }> = [];
+      const stdout = cleanOutput(stdoutBuffer);
+      const stderr = cleanOutput(stderrBuffer);
+      stdoutBuffer = '';
+      stderrBuffer = '';
+      if (stdout) chunks.push({ stream: 'stdout', text: stdout });
+      if (stderr) chunks.push({ stream: 'stderr', text: stderr });
+      flushChain = flushChain.then(async () => {
+        for (const chunk of chunks) {
+          await this.appendEvent(project.id, 'run_output', chunk.text, { run_id: runId, stream: chunk.stream });
+        }
+      });
+      return flushChain;
+    };
+    const scheduleFlush = (): void => {
+      if (flushTimer) return;
+      flushTimer = setTimeout(() => { flushTimer = null; void flushOutput(); }, 200);
+    };
     const result: ExecutionResult = await this.runner.execute({
       projectId: project.id, runId, workspace: project.workspace_path, evidenceDir: project.evidence_dir,
       command: plan.command, image: plan.image, workDir: plan.work_dir, seed: plan.seed,
       timeoutMs: project.budget.max_seconds * 1000, signal,
+      onOutput: (stream, text) => {
+        if (stream === 'stdout') stdoutBuffer += text;
+        else stderrBuffer += text;
+        if (stdoutBuffer.length + stderrBuffer.length > 8192) void flushOutput();
+        else scheduleFlush();
+      },
     });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await flushOutput();
     const run: Run = {
       run_id: runId, attempt: (project.runs?.length ?? 0) + 1, runner: result.runner, command: result.command,
       ...(result.image ? { image: result.image } : {}), work_dir: result.workDir, status: result.status, exit_code: result.exitCode,
       started_at: result.startedAt, finished_at: result.finishedAt, duration_ms: result.durationMs,
       ...(result.stdoutPath ? { stdout_path: result.stdoutPath } : {}), ...(result.stderrPath ? { stderr_path: result.stderrPath } : {}),
       stdout: result.stdout, stderr: result.stderr, env: result.env, gpu: result.gpu,
-      ...(result.provider ? { provider: result.provider } : {}), ...(result.remoteJobId ? { remote_job_id: result.remoteJobId } : {}), ...(result.offerId ? { offer_id: result.offerId } : {}),
+      ...(result.provider ? { provider: result.provider } : {}), ...(result.remoteJobId ? { remote_job_id: result.remoteJobId } : {}),
     };
     if (result.status === 'succeeded') {
       try { run.metric = (await import('../tools/verify.js')).extractMetric(result.stdout, plan.metric_source); }
@@ -354,14 +441,30 @@ export class Orchestrator {
 
   private async finishReport(project: Project): Promise<Project> {
     const events = await this.store.listEvents(project.id, 0);
-    const report = await buildReport(project, events);
+    await this.appendEvent(project.id, 'report_summary_started', 'main agent is summarizing the evidence report');
+    const agentSummary = await this.generateAgentSummary(project, events);
+    const report = await buildReport(project, events, agentSummary);
     const packagePath = await exportPackage(project, report, events);
     report.package_path = packagePath;
     project.report = report;
     await this.save(project);
+    await this.appendEvent(project.id, 'report_summary_generated', 'main agent report summary generated', {
+      model: agentSummary.model, source: agentSummary.source, verdict: agentSummary.verdict ?? null,
+    });
     await this.appendEvent(project.id, 'report_generated', 'evidence report and reproduction package generated', { report_id: report.report_id, package_path: packagePath });
     await this.transition(project, 'report_completed', 'workflow completed');
     return project;
+  }
+
+  private async generateAgentSummary(project: Project, events: Event[]): Promise<AgentReportSummary> {
+    try {
+      const summary = await this.analyzer.summarizeReport?.(project, events);
+      if (!summary) throw new Error('analyzer does not support report summaries');
+      return summary;
+    } catch (error) {
+      await this.appendEvent(project.id, 'report_summary_fallback', 'main model summary failed; using deterministic summary', { error: (error as Error).message });
+      return new HeuristicAnalyzer().summarizeReport(project, events);
+    }
   }
 
   private async transition(project: Project, action: Action, message: string): Promise<void> {
@@ -378,8 +481,17 @@ export class Orchestrator {
     await this.store.saveProject(project);
   }
 
+  private readonly eventListeners = new Set<(event: Event) => void>();
+
+  onEvent(listener: (event: Event) => void): () => void {
+    this.eventListeners.add(listener);
+    return () => this.eventListeners.delete(listener);
+  }
+
   private async appendEvent(projectId: string, type: string, message: string, data?: Record<string, unknown>): Promise<Event> {
-    return this.store.appendEvent(projectId, type, message, data);
+    const event = await this.store.appendEvent(projectId, type, message, data);
+    for (const listener of this.eventListeners) listener(event);
+    return event;
   }
 
   private async failProject(projectId: string, error: unknown): Promise<Project> {

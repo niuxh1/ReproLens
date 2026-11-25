@@ -34,10 +34,8 @@ export interface Runner {
 | `LocalRunner` | Demo/test only; labeled unsafe |
 | `DockerRunner` | Isolated local execution |
 | `SSHRunner` | Remote host via scp/ssh |
-| `PlatformRunner` | Colab-style rental platform |
 | Fake runner | Unit/integration tests |
 
-Switch with `REPROLENS_RUNNER=auto|local|docker|ssh|colab|platform`, or from the Web console.
 
 ## 3. CodeAgent
 
@@ -106,7 +104,6 @@ GPU is a runner capability, recorded in run evidence:
 - Local: sets `CUDA_VISIBLE_DEVICES=0` and `NVIDIA_VISIBLE_DEVICES=all`.
 - Docker: adds `--gpus all` and GPU environment variables.
 - SSH: exports GPU variables in the remote run script.
-- Slurm/platform: records the selected GPU offer and provider.
 
 Switch with `REPROLENS_ENABLE_GPU=true` or the Web console.
 
@@ -118,7 +115,7 @@ Approval is a separate action, not a provider switch:
 const project = await orchestrator.approvePatch(projectId, approvedBy);
 ```
 
-No CodeAgent, model, runner, or platform can skip this gate. `rejectPatch` records the reason and terminates the workflow.
+No CodeAgent, model, or runner can skip this gate. `rejectPatch` records the reason and terminates the workflow.
 
 ## 8. Web and MCP integration
 

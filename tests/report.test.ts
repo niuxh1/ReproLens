@@ -31,7 +31,9 @@ describe('report and reproduction package', () => {
     const events = [{ id: 1, project_id: 'p1', seq: 1, type: 'project_created', message: 'project created', created_at: now }];
     const report = await buildReport(project, events);
     expect(report.summary).toContain('PASS');
-    expect(report.markdown).toContain('Rule-based verdict');
+    expect(report.markdown).toContain('规则核验结论');
+    expect(report.markdown).not.toContain('原始论文');
+    expect(report.markdown).not.toContain('论文页面图像');
     const path = await exportPackage(project, report, events);
     const zip = new AdmZip(path);
     expect(zip.getEntry('manifest.json')).toBeTruthy();

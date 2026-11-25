@@ -24,7 +24,6 @@ function baseConfig(): Config {
     codeAgent: { type: 'none', command: '', timeoutMs: 600000, runAcceptance: false },
     llm: { baseURL: 'http://127.0.0.1:8788/v1', apiKey: 'secret-key-1234', model: 'deepseek-v4.1-flash', timeoutMs: 60000, vision: true },
     remote: { host: '', port: 22, identity: '', baseDir: '/tmp/reprolens' },
-    platform: { baseURL: '', apiKey: '', provider: 'colab', image: 'python:3.11-slim', gpuType: '', minVRAMGB: 0, maxHourlyUSD: 1, pollIntervalMs: 2000, timeoutMs: 1800000 },
   };
 }
 

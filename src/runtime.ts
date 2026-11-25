@@ -12,7 +12,6 @@ import type { Orchestrator } from './orchestrator/orchestrator.js';
 import type { Runner } from './tools/runner.js';
 import { DockerRunner } from './tools/docker-runner.js';
 import { LocalRunner } from './tools/local-runner.js';
-import { PlatformRunner } from './tools/platform-runner.js';
 import { SSHRunner } from './tools/ssh-runner.js';
 
 export function buildAnalyzer(config: Config, log: (message: string) => void = () => undefined): Analyzer {
@@ -42,14 +41,7 @@ export function buildRunner(config: Config): Runner {
       return new DockerRunner({ enableGPU: config.enableGPU });
     case 'ssh':
       return new SSHRunner({ host: config.remote.host, port: config.remote.port, identity: config.remote.identity, baseDir: config.remote.baseDir, enableGPU: config.enableGPU });
-    case 'colab':
-    case 'platform':
-      return new PlatformRunner({
-        baseURL: config.platform.baseURL, apiKey: config.platform.apiKey, provider: config.platform.provider,
-        image: config.platform.image, gpuType: config.platform.gpuType, minVRAMGB: config.platform.minVRAMGB,
-        maxHourlyUSD: config.platform.maxHourlyUSD, pollIntervalMs: config.platform.pollIntervalMs,
-        timeoutMs: config.platform.timeoutMs, enableGPU: config.enableGPU,
-      });
+
     case 'auto': {
       const docker = spawnSync('docker', ['--version'], { stdio: 'ignore' });
       if (docker.status === 0) return new DockerRunner({ enableGPU: config.enableGPU });
@@ -107,7 +99,6 @@ export class RuntimeSettings {
   publicSnapshot(): Config {
     const copy = this.current;
     copy.llm.apiKey = maskSecret(copy.llm.apiKey);
-    copy.platform.apiKey = maskSecret(copy.platform.apiKey);
     return copy;
   }
 }
@@ -117,15 +108,11 @@ function sanitizePatch(current: Config, patch: ConfigPatch): ConfigPatch {
   if (next.llm?.apiKey !== undefined) {
     if (!next.llm.apiKey || next.llm.apiKey.startsWith('••••')) delete next.llm.apiKey;
   }
-  if (next.platform?.apiKey !== undefined) {
-    if (!next.platform.apiKey || next.platform.apiKey.startsWith('••••')) delete next.platform.apiKey;
-  }
+
   if (next.llm?.baseURL === '') {
     next.llm = { ...next.llm, apiKey: '', model: '' };
   }
-  if (next.platform?.baseURL === '') {
-    next.platform = { ...next.platform, apiKey: '' };
-  }
+
   return next;
 }
 

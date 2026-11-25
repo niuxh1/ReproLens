@@ -7,8 +7,6 @@ import { HeuristicAnalyzer } from '../src/agent/heuristic.js';
 import { LocalRunner } from '../src/tools/local-runner.js';
 import { Orchestrator } from '../src/orchestrator/orchestrator.js';
 import { materializeDemo } from '../src/demo.js';
-import { PlatformRunner } from '../src/tools/platform-runner.js';
-import { startPlatformMock } from '../src/platformmock/server.js';
 
 const dirs: string[] = [];
 const closers: Array<() => Promise<void>> = [];
@@ -47,23 +45,4 @@ describe('orchestrator', () => {
     expect(events.some((event) => event.type === 'report_generated')).toBe(true);
   });
 
-  it('completes the same workflow on the Colab-style platform', async () => {
-    const mock = await startPlatformMock();
-    closers.push(mock.close);
-    const dataDir = await mkdtemp(join(tmpdir(), 'reprolens-orch-platform-'));
-    dirs.push(dataDir);
-    const paths = await materializeDemo(dataDir, 'platform-demo');
-    const runner = new PlatformRunner({ baseURL: mock.url, provider: 'colab', image: 'python:3.11-slim', minVRAMGB: 16, maxHourlyUSD: 0.5, pollIntervalMs: 10, timeoutMs: 5000, enableGPU: true });
-    const orchestrator = new Orchestrator(new MemoryStore(), new HeuristicAnalyzer(), runner, dataDir);
-    let project = await orchestrator.createProject({ name: 'Platform demo', ...paths, budget: { max_runs: 3, max_seconds: 30, max_patches: 2 } });
-    project = await orchestrator.start(project.id);
-    project = await orchestrator.selectClaims(project.id, ['C1']);
-    project = await orchestrator.confirmPlan(project.id);
-    expect(project.state).toBe('AWAITING_PATCH');
-    project = await orchestrator.approvePatch(project.id, 'platform-test-user');
-    expect(project.state).toBe('COMPLETED');
-    expect(project.verification?.verdict).toBe('PASS');
-    expect(project.runs?.[1]?.provider).toBe('colab');
-    expect(project.runs?.[1]?.gpu).toBe(true);
-  });
 });

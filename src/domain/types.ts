@@ -121,7 +121,6 @@ export interface Run {
   gpu?: boolean;
   provider?: string;
   remote_job_id?: string;
-  offer_id?: string;
 }
 
 export interface Diagnosis {
@@ -173,11 +172,20 @@ export interface EvidenceRef {
   size?: number;
 }
 
+export interface AgentReportSummary {
+  markdown: string;
+  model: string;
+  generated_at: Timestamp;
+  source: 'model' | 'heuristic';
+  verdict?: Verdict;
+}
+
 export interface Report {
   report_id: string;
   generated_at: Timestamp;
   summary: string;
   markdown: string;
+  agent_summary?: AgentReportSummary;
   package_path?: string;
   evidence?: EvidenceRef[];
 }

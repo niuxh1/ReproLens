@@ -14,7 +14,7 @@ CLI / Fastify API / Web console
     Analyzer   CodeAgent      Runner          Store
        |          |             |              |
  PDF + repo     diff       local/docker     SQLite + event log
- ingestion                  ssh/platform
+ ingestion                  ssh
        |
  Verifier (TypeScript rules) -> Report / ZIP
 ```
@@ -49,7 +49,7 @@ All transitions are defined in `src/domain/state.ts`. A state change is persiste
 | Interface | Location | Contract |
 |---|---|---|
 | `Analyzer` | `src/agent/analyzer.ts` | Extract claims, build plans, diagnose failures |
-| `Runner` | `src/tools/runner.ts` | Execute a command in local/Docker/SSH/platform environment |
+| `Runner` | `src/tools/runner.ts` | Execute a command in local/Docker/SSH environment |
 | `CodeAgent` | `src/codeagent/code-agent.ts` | Propose an implementation diff in a disposable copy |
 | `Store` | `src/store/store.ts` | Persist project aggregate and append-only events |
 | `Orchestrator` | `src/orchestrator/orchestrator.ts` | Own workflow transitions and approvals |
@@ -67,7 +67,6 @@ PDF evidence records page text, rendered page PNG, dimensions, caption candidate
 - Execution commands are validated before local execution.
 - Docker uses no-network by default, resource limits, dropped capabilities, no-new-privileges, and a workspace-only mount.
 - SSH uploads a tar.gz to a remote directory and runs a generated script.
-- PlatformRunner uploads an artifact and submits a job; the platform is responsible for isolation.
 - CodeAgent works on a copy; it cannot directly modify the original workspace.
 - PatchManager rejects path traversal, internal metadata changes, symlinks, deletions, renames, and binary diffs.
 - New files are allowed only when the diff is a valid creation patch.
@@ -88,7 +87,6 @@ This prevents a code tool from making the test pass by changing the claim, metri
 - `local`: demo/test only, explicitly labeled unsafe.
 - `docker`: isolated real execution.
 - `ssh`: direct remote host via scp/ssh.
-- `colab`/`platform`: rental platform HTTP contract with automatic offer selection.
 - `codex`/`claude`/`gemini`/`command`: CodeAgent implementations for code changes.
 
 ## 9. Failure handling

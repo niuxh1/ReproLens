@@ -7,8 +7,6 @@ export const DEFAULT_RUNNER = 'auto';
 export const DEFAULT_LLM_TIMEOUT_MS = 60_000;
 export const DEFAULT_SSH_PORT = 22;
 export const DEFAULT_SSH_BASE_DIR = '/tmp/reprolens';
-export const DEFAULT_PLATFORM_POLL_MS = 2_000;
-export const DEFAULT_PLATFORM_TIMEOUT_MS = 30 * 60_000;
 
 export interface CodeAgentConfig {
   type: 'none' | 'claude' | 'codex' | 'gemini' | 'command';
@@ -32,27 +30,15 @@ export interface RemoteConfig {
   baseDir: string;
 }
 
-export interface PlatformConfig {
-  baseURL: string;
-  apiKey: string;
-  provider: string;
-  image: string;
-  gpuType: string;
-  minVRAMGB: number;
-  maxHourlyUSD: number;
-  pollIntervalMs: number;
-  timeoutMs: number;
-}
 
 export interface Config {
   addr: string;
   dataDir: string;
-  runner: 'auto' | 'docker' | 'local' | 'ssh' | 'colab' | 'platform';
+  runner: 'auto' | 'docker' | 'local' | 'ssh';
   enableGPU: boolean;
   codeAgent: CodeAgentConfig;
   llm: LLMConfig;
   remote: RemoteConfig;
-  platform: PlatformConfig;
 }
 
 type Env = Record<string, string | undefined>;
@@ -86,11 +72,6 @@ function parseIntValue(raw: string, key: string): number {
   return value;
 }
 
-function parseFloatValue(raw: string, key: string): number {
-  const value = Number(raw.trim());
-  if (!Number.isFinite(value)) throw new Error(`invalid ${key} ${JSON.stringify(raw)}`);
-  return value;
-}
 
 function parseDotEnv(text: string): Env {
   const values: Env = {};
@@ -121,7 +102,7 @@ function validateURL(raw: string, key: string): string {
   }
 }
 
-const runnerSchema = z.enum(['auto', 'docker', 'local', 'ssh', 'colab', 'platform']);
+const runnerSchema = z.enum(['auto', 'docker', 'local', 'ssh']);
 const codeAgentSchema = z.enum(['none', 'claude', 'codex', 'gemini', 'command']);
 
 export async function loadConfig(envPath = '.env'): Promise<Config> {
@@ -146,10 +127,7 @@ export async function loadConfig(envPath = '.env'): Promise<Config> {
     const raw = get(key, String(fallback));
     return raw === '' ? fallback : parseIntValue(raw, key);
   };
-  const getFloat = (key: string, fallback: number): number => {
-    const raw = get(key, String(fallback));
-    return raw === '' ? fallback : parseFloatValue(raw, key);
-  };
+
   const getDuration = (key: string, fallback: number): number => {
     const raw = get(key, `${fallback}ms`);
     if (raw === '') return fallback;
@@ -190,33 +168,19 @@ export async function loadConfig(envPath = '.env'): Promise<Config> {
       identity: get('REPROLENS_SSH_IDENTITY'),
       baseDir: get('REPROLENS_SSH_BASE_DIR', DEFAULT_SSH_BASE_DIR) || DEFAULT_SSH_BASE_DIR,
     },
-    platform: {
-      baseURL: validateURL(get('REPROLENS_PLATFORM_BASE_URL'), 'REPROLENS_PLATFORM_BASE_URL'),
-      apiKey: get('REPROLENS_PLATFORM_API_KEY'),
-      provider: (get('REPROLENS_PLATFORM_PROVIDER', 'colab') || 'colab').toLowerCase(),
-      image: get('REPROLENS_PLATFORM_IMAGE', 'python:3.11-slim') || 'python:3.11-slim',
-      gpuType: get('REPROLENS_PLATFORM_GPU_TYPE'),
-      minVRAMGB: getInt('REPROLENS_PLATFORM_MIN_VRAM_GB', 0),
-      maxHourlyUSD: getFloat('REPROLENS_PLATFORM_MAX_HOURLY_USD', 1),
-      pollIntervalMs: getDuration('REPROLENS_PLATFORM_POLL_INTERVAL', DEFAULT_PLATFORM_POLL_MS),
-      timeoutMs: getDuration('REPROLENS_PLATFORM_TIMEOUT', DEFAULT_PLATFORM_TIMEOUT_MS),
-    },
+
   };
 
   if (!cfg.addr) throw new Error('REPROLENS_ADDR must not be empty');
   if (!cfg.dataDir) throw new Error('REPROLENS_DATA_DIR must not be empty');
   if (cfg.remote.port < 1 || cfg.remote.port > 65535) throw new Error(`invalid REPROLENS_SSH_PORT ${cfg.remote.port}`);
   if (cfg.runner === 'ssh' && !cfg.remote.host) throw new Error('REPROLENS_SSH_HOST is required when REPROLENS_RUNNER=ssh');
-  if ((cfg.runner === 'colab' || cfg.runner === 'platform') && !cfg.platform.baseURL) {
-    throw new Error('REPROLENS_PLATFORM_BASE_URL is required for platform runners');
-  }
+
   if (cfg.llm.baseURL) {
     if (!cfg.llm.apiKey) throw new Error('REPROLENS_LLM_API_KEY is required when REPROLENS_LLM_BASE_URL is set');
     if (!cfg.llm.model) throw new Error('REPROLENS_LLM_MODEL is required when REPROLENS_LLM_BASE_URL is set');
   }
-  if (cfg.platform.minVRAMGB < 0 || cfg.platform.maxHourlyUSD < 0) {
-    throw new Error('platform VRAM and price limits must be non-negative');
-  }
+
   return cfg;
 }
 
@@ -233,14 +197,9 @@ export function validateConfig(input: Config): Config {
   cfg.runner = runnerSchema.parse(String(cfg.runner).toLowerCase());
   cfg.codeAgent.type = codeAgentSchema.parse(String(cfg.codeAgent.type).toLowerCase());
   cfg.llm.baseURL = validateURL(cfg.llm.baseURL, 'REPROLENS_LLM_BASE_URL');
-  cfg.platform.baseURL = validateURL(cfg.platform.baseURL, 'REPROLENS_PLATFORM_BASE_URL');
   cfg.codeAgent.command = cfg.codeAgent.command.trim();
   cfg.codeAgent.timeoutMs = Math.round(cfg.codeAgent.timeoutMs);
   cfg.llm.timeoutMs = Math.round(cfg.llm.timeoutMs);
-  cfg.platform.pollIntervalMs = Math.round(cfg.platform.pollIntervalMs);
-  cfg.platform.timeoutMs = Math.round(cfg.platform.timeoutMs);
-  cfg.platform.provider = cfg.platform.provider.toLowerCase();
-  cfg.platform.minVRAMGB = Math.round(cfg.platform.minVRAMGB);
   cfg.remote.port = Math.round(cfg.remote.port);
   cfg.remote.baseDir = cfg.remote.baseDir || DEFAULT_SSH_BASE_DIR;
   cfg.addr = cfg.addr.trim();
@@ -249,7 +208,6 @@ export function validateConfig(input: Config): Config {
   if (!cfg.dataDir) throw new Error('REPROLENS_DATA_DIR must not be empty');
   if (cfg.remote.port < 1 || cfg.remote.port > 65535) throw new Error(`invalid REPROLENS_SSH_PORT ${cfg.remote.port}`);
   if (cfg.runner === 'ssh' && !cfg.remote.host) throw new Error('REPROLENS_SSH_HOST is required when REPROLENS_RUNNER=ssh');
-  if ((cfg.runner === 'colab' || cfg.runner === 'platform') && !cfg.platform.baseURL) throw new Error('REPROLENS_PLATFORM_BASE_URL is required for platform runners');
   if (cfg.codeAgent.type === 'claude' && !cfg.codeAgent.command) cfg.codeAgent.command = 'claude -p --allowedTools Read,Edit,Write,Bash';
   if (cfg.codeAgent.type === 'codex' && !cfg.codeAgent.command) cfg.codeAgent.command = 'codex exec --approve-for-me --ephemeral';
   if (cfg.codeAgent.type === 'gemini' && !cfg.codeAgent.command) cfg.codeAgent.command = 'gemini';
@@ -258,10 +216,9 @@ export function validateConfig(input: Config): Config {
     if (!cfg.llm.apiKey) throw new Error('REPROLENS_LLM_API_KEY is required when REPROLENS_LLM_BASE_URL is set');
     if (!cfg.llm.model) throw new Error('REPROLENS_LLM_MODEL is required when REPROLENS_LLM_BASE_URL is set');
   }
-  if (cfg.llm.timeoutMs <= 0 || cfg.codeAgent.timeoutMs <= 0 || cfg.platform.pollIntervalMs <= 0 || cfg.platform.timeoutMs <= 0) {
-    throw new Error('timeouts and poll intervals must be positive');
+  if (cfg.llm.timeoutMs <= 0 || cfg.codeAgent.timeoutMs <= 0) {
+    throw new Error('timeouts must be positive');
   }
-  if (cfg.platform.minVRAMGB < 0 || cfg.platform.maxHourlyUSD < 0) throw new Error('platform VRAM and price limits must be non-negative');
   return cfg;
 }
 
@@ -271,7 +228,6 @@ export interface ConfigPatch {
   llm?: Partial<LLMConfig>;
   codeAgent?: Partial<CodeAgentConfig>;
   remote?: Partial<RemoteConfig>;
-  platform?: Partial<PlatformConfig>;
   addr?: string;
   dataDir?: string;
 }
@@ -285,6 +241,5 @@ export function mergeConfig(base: Config, patch: ConfigPatch): Config {
   if (patch.llm) next.llm = { ...next.llm, ...patch.llm };
   if (patch.codeAgent) next.codeAgent = { ...next.codeAgent, ...patch.codeAgent };
   if (patch.remote) next.remote = { ...next.remote, ...patch.remote };
-  if (patch.platform) next.platform = { ...next.platform, ...patch.platform };
   return validateConfig(next);
 }

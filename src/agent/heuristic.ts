@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import type { Analyzer } from './analyzer.js';
-import type { Claim, Diagnosis, ExperimentPlan, Paper, RepoSummary, Run } from '../domain/types.js';
+import type { AgentReportSummary, Claim, Diagnosis, Event, ExperimentPlan, Paper, Project, RepoSummary, Run } from '../domain/types.js';
 
 const claimLine = /^\s*claim\s+([A-Za-z0-9_-]+)\s*[:：]\s*(.+)$/i;
 const metricBefore = /([-+]?(?:\d+(?:\.\d*)?|\.\d+))\s+(?:[A-Za-z-]+\s+){0,3}(errors?|tasks?|papers?|counts?|iterations?)\b/i;
@@ -95,6 +95,45 @@ export class HeuristicAnalyzer implements Analyzer {
     };
   }
 
+  async summarizeReport(project: Project, events: Event[]): Promise<AgentReportSummary> {
+    const now = new Date().toISOString();
+    const verification = project.verification;
+    const selectedClaims = (project.claims ?? []).filter((claim) => claim.selected);
+    const run = project.runs?.[project.runs.length - 1];
+    const failedRuns = (project.runs ?? []).filter((item) => item.status !== 'succeeded').length;
+    const evidencePages = (project.paper.pages ?? []).filter((page) => page.image_path).length;
+    const resultLine = verification
+      ? `规则核验结论为 **${verification.verdict}**：论文期望值为 ${formatSummaryNumber(verification.expected)}，本次观测值为 ${formatSummaryNumber(verification.observed)}，差值为 ${formatSummaryNumber(Math.abs(verification.observed - verification.expected))}。该结论由确定性规则产生，主 Agent 只负责解释，不参与改写。`
+      : '当前项目尚未形成规则核验结论，因此不能据此宣称论文结果已被复现。';
+    const lines = [
+      '## 主 Agent 总结',
+      '',
+      '### 实验目的',
+      `本次复现围绕「${project.name}」展开，目标是用原始论文、公开代码和受控执行环境，对论文中可测量的实验主张进行可审计的数值核验。`,
+      '',
+      '### 执行过程',
+      `项目共选择 ${selectedClaims.length || project.selected_claim_ids?.length || 0} 条实验主张，完成 ${project.runs?.length ?? 0} 次运行${failedRuns ? `，其中 ${failedRuns} 次失败后进入诊断/重试流程` : ''}。${run ? `最近一次运行使用 \`${run.runner}\` 执行器${run.gpu ? '并启用 GPU' : ''}，退出码为 ${run.exit_code}，耗时 ${run.duration_ms} ms。` : '尚未记录运行结果。'}`,
+      '',
+      '### 结果与论文一致性',
+      resultLine,
+      '',
+      '### 证据基础',
+      `报告引用了原始论文 PDF、${evidencePages} 张论文页面图像、运行日志和规则核验快照；完整事件流共 ${events.length} 条。证据包中保留原始材料与运行输出，报告中的解释性文字不替代这些证据。`,
+      '',
+      '### 限制与后续建议',
+      '当前结论只覆盖被选择并成功执行的主张，不等同于对论文全部实验的复现。建议在报告中复核容差设置、随机种子、数据版本和硬件差异；如需增强结论，应增加独立种子重复实验，并将新增运行纳入同一证据包。',
+      '',
+      `> 总结生成方式：确定性启发式回退（${now}）。`,
+    ];
+    return {
+      markdown: lines.join('\n'),
+      model: 'deterministic-heuristic',
+      generated_at: now,
+      source: 'heuristic',
+      ...(verification ? { verdict: verification.verdict } : {}),
+    };
+  }
+
   async diagnose(run: Run, _repo: RepoSummary, workspace: string): Promise<Diagnosis> {
     const output = `${run.stderr ?? ''}\n${run.stdout ?? ''}`;
     if (run.status === 'timeout') {
@@ -135,6 +174,10 @@ export class HeuristicAnalyzer implements Analyzer {
     }
     return { failure_class: 'unknown', root_cause: 'The failure did not match a supported deterministic pattern.', confidence: 'low', explanation: 'Inspect the preserved stdout/stderr and run manifest.', needs_code_agent: true };
   }
+}
+
+function formatSummaryNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : String(Number(value.toPrecision(6)));
 }
 
 function dedupeClaims(claims: Claim[]): Claim[] {

@@ -1,5 +1,5 @@
 import type { Analyzer } from './analyzer.js';
-import type { Claim, Diagnosis, ExperimentPlan, Paper, RepoSummary, Run } from '../domain/types.js';
+import type { AgentReportSummary, Claim, Diagnosis, Event, ExperimentPlan, Paper, Project, RepoSummary, Run } from '../domain/types.js';
 
 export class FallbackAnalyzer implements Analyzer {
   constructor(
@@ -34,6 +34,21 @@ export class FallbackAnalyzer implements Analyzer {
     }
     if (!this.secondary) throw new Error('no analyzer available');
     return this.secondary.buildPlan(claim, paper, repo);
+  }
+
+  async summarizeReport(project: Project, events: Event[]): Promise<AgentReportSummary> {
+    if (this.primary) {
+      try {
+        const summary = await this.primary.summarizeReport?.(project, events);
+        if (summary?.markdown?.trim()) return summary;
+        this.onFallback(new Error('primary analyzer returned an empty report summary'));
+      } catch (error) {
+        this.onFallback(error as Error);
+      }
+    }
+    const summary = await this.secondary?.summarizeReport?.(project, events);
+    if (!summary) throw new Error('no analyzer available for report summaries');
+    return summary;
   }
 
   async diagnose(run: Run, repo: RepoSummary, workspace: string): Promise<Diagnosis> {

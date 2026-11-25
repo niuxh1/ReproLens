@@ -15,11 +15,9 @@ import { materializeDemo } from './demo.js';
 import { Orchestrator } from './orchestrator/orchestrator.js';
 import { SqliteStore } from './store/sqlite-store.js';
 import { buildServer } from './httpapi/server.js';
-import { startPlatformMock } from './platformmock/server.js';
 import { LocalRunner } from './tools/local-runner.js';
 import { DockerRunner } from './tools/docker-runner.js';
 import { SSHRunner } from './tools/ssh-runner.js';
-import { PlatformRunner } from './tools/platform-runner.js';
 import { Workspace } from './tools/workspace.js';
 import type { Runner } from './tools/runner.js';
 import type { Project } from './domain/types.js';
@@ -51,23 +49,9 @@ program.command('demo').description('run the built-in reproduction demo').option
   await runDemo(config, Boolean(options.autoApprove));
 });
 
-program.command('colab-demo').description('run the Colab-style platform demo').option('--platform-url <url>', 'real platform base URL; empty starts the local mock').action(async (options: { platformUrl?: string }) => {
-  const config = await loadConfig(envFile());
-  await runColabDemo(config, options.platformUrl ?? '');
-});
-
 program.command('ssh-demo').description('probe SSH deployment against a remote host').option('--host <host>', 'SSH target', process.env.REPROLENS_SSH_HOST ?? 'asus@127.0.0.1').option('--port <port>', 'SSH port', process.env.REPROLENS_SSH_PORT ?? '2222').option('--identity <path>', 'SSH identity file', process.env.REPROLENS_SSH_IDENTITY ?? '').option('--base-dir <path>', 'remote base directory', process.env.REPROLENS_SSH_BASE_DIR ?? '/home/asus/reprolens-test').option('--gpu', 'enable GPU environment variables on the remote host').action(async (options: { host: string; port: string; identity: string; baseDir: string; gpu?: boolean }) => {
   const config = await loadConfig(envFile());
   await runSSHDemo(config, options.host, Number(options.port), options.identity, options.baseDir, Boolean(options.gpu));
-});
-
-program.command('mock-colab').description('run the Colab-style platform mock').option('--addr <host:port>', 'listen address', '127.0.0.1:8789').action(async (options: { addr: string }) => {
-  const { host, port } = parseAddress(options.addr);
-  const mock = await startPlatformMock({ host, port });
-  console.log(`Mock Colab platform listening on ${mock.url}`);
-  await new Promise<void>((resolve) => {
-    process.once('SIGINT', () => { void mock.close().then(resolve); });
-  });
 });
 
 program.command('check-llm').description('verify the configured OpenAI-compatible endpoint').action(async () => {
@@ -126,9 +110,7 @@ function buildRunner(config: Config): Runner {
       return new DockerRunner({ enableGPU: config.enableGPU });
     case 'ssh':
       return new SSHRunner({ host: config.remote.host, port: config.remote.port, identity: config.remote.identity, baseDir: config.remote.baseDir, enableGPU: config.enableGPU });
-    case 'colab':
-    case 'platform':
-      return new PlatformRunner({ baseURL: config.platform.baseURL, apiKey: config.platform.apiKey, provider: config.platform.provider, image: config.platform.image, gpuType: config.platform.gpuType, minVRAMGB: config.platform.minVRAMGB, maxHourlyUSD: config.platform.maxHourlyUSD, pollIntervalMs: config.platform.pollIntervalMs, timeoutMs: config.platform.timeoutMs, enableGPU: config.enableGPU });
+
     case 'auto': {
       const docker = spawnSync('docker', ['--version'], { stdio: 'ignore' });
       if (docker.status === 0) return new DockerRunner({ enableGPU: config.enableGPU });
@@ -167,40 +149,6 @@ async function runDemo(config: Config, autoApprove: boolean): Promise<void> {
   } finally {
     await built.close();
   }
-}
-
-async function runColabDemo(config: Config, platformURL: string): Promise<void> {
-  const mock = platformURL ? null : await startPlatformMock();
-  try {
-    const runner = new PlatformRunner({ baseURL: platformURL || mock!.url, provider: 'colab', image: 'python:3.11-slim', minVRAMGB: 16, maxHourlyUSD: 0.5, pollIntervalMs: 100, timeoutMs: 2 * 60_000, enableGPU: true });
-    const built = await buildOrchestratorWithRunner(config, runner);
-    try {
-      const paths = await materializeDemo(config.dataDir, `colab_demo_${Date.now()}`);
-      let project = await built.orchestrator.createProject({ name: 'Colab-style platform demo', ...paths, budget: { max_runs: 3, max_seconds: 60, max_patches: 2 } });
-      project = await built.orchestrator.start(project.id);
-      project = await built.orchestrator.selectClaims(project.id, [project.claims![0]!.claim_id]);
-      project = await built.orchestrator.confirmPlan(project.id);
-      if (project.state !== 'AWAITING_PATCH' || !project.patch) throw new Error(`expected platform demo to require a patch, got state=${project.state}`);
-      console.log('Colab-style platform selected a GPU offer and returned a failure with evidence:');
-      for (const run of project.runs ?? []) console.log(`- run ${run.attempt}: provider=${run.provider} offer=${run.offer_id} gpu=${run.gpu} job=${run.remote_job_id} status=${run.status}`);
-      console.log('Patch proposal:');
-      console.log(project.patch.diff);
-      console.log('Simulated human approval: applying patch and retrying on the platform.');
-      project = await built.orchestrator.approvePatch(project.id, 'colab-demo-user');
-      printProjectResult(project);
-      for (const run of project.runs ?? []) console.log(`Run ${run.attempt}: provider=${run.provider} offer=${run.offer_id} gpu=${run.gpu} job=${run.remote_job_id} status=${run.status}`);
-    } finally {
-      await built.close();
-    }
-  } finally {
-    if (mock) await mock.close();
-  }
-}
-
-async function buildOrchestratorWithRunner(config: Config, runner: Runner): Promise<{ orchestrator: Orchestrator; close: () => Promise<void> }> {
-  await mkdir(config.dataDir, { recursive: true });
-  const store = new SqliteStore(join(config.dataDir, 'reprolens.db'));
-  return { orchestrator: new Orchestrator(store, buildAnalyzer(config), runner, config.dataDir), close: () => store.close() };
 }
 
 async function runSSHDemo(config: Config, host: string, port: number, identity: string, baseDir: string, gpu: boolean): Promise<void> {
