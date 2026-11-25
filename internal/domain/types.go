@@ -34,6 +34,7 @@ const (
 	ActionApprovePatch          Action = "approve_patch"
 	ActionRetryStart            Action = "retry_start"
 	ActionRejectPatch           Action = "reject_patch"
+	ActionNextPlan              Action = "next_plan"
 	ActionVerificationCompleted Action = "verification_completed"
 	ActionReportCompleted       Action = "report_completed"
 	ActionStop                  Action = "stop"
@@ -142,6 +143,7 @@ type Diagnosis struct {
 type PatchProposal struct {
 	ID         string     `json:"patch_id"`
 	RunID      string     `json:"run_id"`
+	ClaimID    string     `json:"claim_id"`
 	Diagnosis  Diagnosis  `json:"diagnosis"`
 	Diff       string     `json:"diff"`
 	Files      []string   `json:"files"`
@@ -227,6 +229,9 @@ type Project struct {
 	Runs             []Run            `json:"runs,omitempty"`
 	Patch            *PatchProposal   `json:"patch,omitempty"`
 	Verification     *Verification    `json:"verification,omitempty"`
+	Verifications    []Verification   `json:"verifications,omitempty"`
+	CurrentPlanIndex int              `json:"current_plan_index,omitempty"`
+	PatchAttempts    int              `json:"patch_attempts,omitempty"`
 	Report           *Report          `json:"report,omitempty"`
 	StopRequested    bool             `json:"stop_requested,omitempty"`
 	Error            string           `json:"error,omitempty"`

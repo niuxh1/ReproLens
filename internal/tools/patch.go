@@ -103,12 +103,12 @@ func (m *PatchManager) Apply(diff string) ([]string, error) {
 	if err := os.WriteFile(patchPath, []byte(diff), 0o644); err != nil {
 		return nil, err
 	}
-	check := exec.Command("git", "-C", m.Workspace, "apply", "--check", "--whitespace=nowarn", patchPath)
+	check := exec.Command("git", "-C", m.Workspace, "apply", "--check", "--ignore-space-change", "--whitespace=nowarn", patchPath)
 	if out, err := check.CombinedOutput(); err != nil {
 		_ = m.Restore(backupDir)
 		return nil, fmt.Errorf("patch check failed: %v: %s", err, strings.TrimSpace(string(out)))
 	}
-	apply := exec.Command("git", "-C", m.Workspace, "apply", "--whitespace=nowarn", patchPath)
+	apply := exec.Command("git", "-C", m.Workspace, "apply", "--ignore-space-change", "--whitespace=nowarn", patchPath)
 	if out, err := apply.CombinedOutput(); err != nil {
 		_ = m.Restore(backupDir)
 		return nil, fmt.Errorf("patch apply failed: %v: %s", err, strings.TrimSpace(string(out)))

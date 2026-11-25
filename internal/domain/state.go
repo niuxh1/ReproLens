@@ -33,6 +33,7 @@ var transitions = map[State]map[Action]State{
 		ActionRetryStart: StateExecuting,
 	},
 	StateVerifying: {
+		ActionNextPlan:              StateExecuting,
 		ActionVerificationCompleted: StateReporting,
 	},
 	StateReporting: {
