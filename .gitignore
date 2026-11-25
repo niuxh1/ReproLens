@@ -1,0 +1,13 @@
+# Local secrets / runtime state
+.env
+.env.local
+data/
+dist/
+# Go build output
+*.exe
+*.test
+*.out
+# Editors / OS
+.vscode/
+.DS_Store
+Thumbs.db
