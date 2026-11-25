@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0b0d10">
+  <title>ReproLens · Agent Console</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%230b0d10%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%278%27 fill=%27none%27 stroke=%27%237aa2ff%27 stroke-width=%272%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%272%27 fill=%27%237aa2ff%27/%3E%3C/svg%3E">`n  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="主导航">
+      <div class="brand-block">
+        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+        <div>
+          <div class="brand-name">ReproLens</div>
+          <div class="brand-sub">AGENT CONSOLE</div>
+        </div>
+      </div>
+
+      <button class="workspace-switcher" id="workspace-switcher" type="button">
+        <span class="workspace-avatar">RL</span>
+        <span class="workspace-copy"><strong>本地工作区</strong><small id="workspace-status">连接中…</small></span>
+        <span class="chevron">⌄</span>
+      </button>
+
+      <nav class="nav-block" aria-label="工作区">
+        <div class="nav-label">工作区</div>
+        <button class="nav-item active" data-view="overview" type="button">
+          <span class="nav-icon">◈</span><span>总览</span><span class="nav-hint">G</span>
+        </button>
+        <button class="nav-item" data-view="new-run" type="button">
+          <span class="nav-icon">＋</span><span>新建复现</span><span class="nav-hint">N</span>
+        </button>
+        <button class="nav-item" data-view="projects" type="button">
+          <span class="nav-icon">▤</span><span>项目</span><span class="nav-count" id="project-count">0</span>
+        </button>
+      </nav>
+
+      <nav class="nav-block" aria-label="配置">
+        <div class="nav-label">配置</div>
+        <button class="nav-item" data-view="settings" type="button">
+          <span class="nav-icon">⚙</span><span>运行时设置</span>
+        </button>
+        <button class="nav-item" data-view="docs" type="button">
+          <span class="nav-icon">◇</span><span>接口与扩展</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-spacer"></div>
+      <div class="sidebar-footer">
+        <div class="health-row"><span class="health-dot" id="health-dot"></span><span id="health-label">检查服务</span><span class="health-pill" id="health-pill">—</span></div>
+        <div class="version-row"><span>ReproLens 0.2.0</span><span>TypeScript</span></div>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div class="crumbs"><span class="crumb-muted">ReproLens</span><span class="crumb-sep">/</span><strong id="crumb-current">总览</strong></div>
+        <div class="topbar-actions">
+          <button class="icon-button" id="refresh-button" title="刷新" type="button">↻</button>
+          <button class="command-trigger" id="command-trigger" type="button"><span>⌘</span><span>搜索或执行命令</span><kbd>⌘ K</kbd></button>
+          <span class="connection-chip"><span class="health-dot"></span><span id="connection-text">本地 API</span></span>
+        </div>
+      </header>
+
+      <div class="content-scroll">
+        <section class="view active" id="view-overview" data-view-panel="overview">
+          <div class="page-heading">
+            <div>
+              <div class="eyebrow">REPRODUCTION WORKSPACE</div>
+              <h1>把论文主张变成可核验的证据。</h1>
+              <p class="page-lede">从原始 PDF、代码仓库和计算资源开始，ReproLens 维护状态、预算、执行日志与最终数值判决。</p>
+            </div>
+            <button class="button primary" data-action="new-run" type="button"><span>＋</span> 新建复现</button>
+          </div>
+
+          <div class="metric-grid" id="overview-metrics">
+            <div class="metric-card"><span class="metric-label">项目总数</span><strong id="metric-projects">0</strong><small>已创建工程</small></div>
+            <div class="metric-card"><span class="metric-label">已核验</span><strong id="metric-verdicts">0</strong><small>规则判决</small></div>
+            <div class="metric-card"><span class="metric-label">GPU 运行</span><strong id="metric-gpu">0</strong><small>加速执行</small></div>
+            <div class="metric-card"><span class="metric-label">证据包</span><strong id="metric-packages">0</strong><small>可下载 ZIP</small></div>
+          </div>
+
+          <div class="section-heading"><div><div class="eyebrow">RECENT PROJECTS</div><h2>最近项目</h2></div><button class="text-button" data-view="projects" type="button">查看全部 →</button></div>
+          <div class="project-grid" id="overview-projects"><div class="empty-panel">载入中…</div></div>
+
+          <div class="two-column">
+            <section class="panel">
+              <div class="panel-head"><div><div class="eyebrow">RUNTIME</div><h3>当前执行配置</h3></div><span class="status-pill neutral" id="runtime-runner">—</span></div>
+              <div class="config-list" id="runtime-config"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-head"><div><div class="eyebrow">QUICK START</div><h3>推荐流程</h3></div></div>
+              <ol class="quick-steps">
+                <li><span>01</span><div><strong>接入原始材料</strong><small>上传 PDF，填写仓库路径；PDF 会渲染为页面图像并保留图表信息。</small></div></li>
+                <li><span>02</span><div><strong>确认模型与执行器</strong><small>选择 OpenAI-compatible 模型、Local/Docker/SSH/Colab 执行器。</small></div></li>
+                <li><span>03</span><div><strong>人工审批补丁</strong><small>失败后由诊断器或 CodeAgent 生成最小 diff，审批后重跑。</small></div></li>
+                <li><span>04</span><div><strong>下载证据包</strong><small>报告、事件日志、运行日志、页面图像和原始 PDF 一并归档。</small></div></li>
+              </ol>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-new-run" data-view-panel="new-run">
+          <div class="page-heading compact">
+            <div><div class="eyebrow">NEW REPRODUCTION</div><h1>新建复现工程</h1><p class="page-lede">所有选项都可在创建前配置；模型与运行时设置会持久化到本地工作区。</p></div>
+            <button class="button ghost" data-view="overview" type="button">取消</button>
+          </div>
+
+          <form id="new-run-form" class="form-layout">
+            <div class="form-main">
+              <section class="panel form-section">
+                <div class="section-index">01</div>
+                <div class="section-body">
+                  <div class="section-title"><div><div class="eyebrow">SOURCE MATERIAL</div><h3>论文与代码</h3></div><span class="section-note">PDF 保留页面视觉证据</span></div>
+                  <div class="upload-row">
+                    <label class="upload-zone" id="paper-drop">
+                      <input id="paper-file" type="file" accept=".pdf,application/pdf" hidden>
+                      <span class="upload-icon">↥</span>
+                      <strong>上传原始 PDF</strong>
+                      <small>拖拽或点击选择，最大 80 MB</small>
+                      <span class="file-chip" id="paper-file-name" hidden></span>
+                    </label>
+                    <div class="field"><label for="paper-path">论文路径 <span class="required">*</span></label><input id="paper-path" name="paper_path" type="text" placeholder="C:\\research\\paper.pdf" required><small>可直接填写服务端可访问路径，或上传 PDF 自动填充。</small></div>
+                  </div>
+                  <div class="upload-row">
+                    <label class="upload-zone" id="repo-drop">
+                      <input id="repo-file" type="file" accept=".zip,application/zip" hidden>
+                      <span class="upload-icon">↥</span>
+                      <strong>上传仓库 ZIP</strong>
+                      <small>可选；解压到本地工作区</small>
+                      <span class="file-chip" id="repo-file-name" hidden></span>
+                    </label>
+                    <div class="field"><label for="repo-path">仓库路径 <span class="required">*</span></label><input id="repo-path" name="repo_path" type="text" placeholder="C:\\research\\official-repo" required><small>必须是服务端可访问的目录。</small></div>
+                  </div>
+                  <div class="form-grid two">
+                    <div class="field"><label for="project-name">工程名称</label><input id="project-name-input" name="name" type="text" placeholder="例如：Grokfast 复现"></div>
+                    <div class="field"><label for="data-path">数据路径 <span class="optional">可选</span></label><input id="data-path" name="data_path" type="text" placeholder="C:\\research\\data"></div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="panel form-section">
+                <div class="section-index">02</div>
+                <div class="section-body">
+                  <div class="section-title"><div><div class="eyebrow">EXECUTION BUDGET</div><h3>执行与预算</h3></div><span class="section-note">硬上限由状态机执行</span></div>
+                  <div class="form-grid three">
+                    <div class="field"><label for="max-runs">最大运行次数</label><input id="max-runs" name="max_runs" type="number" min="1" value="3"></div>
+                    <div class="field"><label for="max-seconds">单次超时（秒）</label><input id="max-seconds" name="max_seconds" type="number" min="1" value="120"></div>
+                    <div class="field"><label for="max-patches">最大补丁数</label><input id="max-patches" name="max_patches" type="number" min="1" value="2"></div>
+                  </div>
+                  <div class="form-grid two">
+                    <div class="field"><label for="runner-select">执行器</label><select id="runner-select" name="runner"><option value="auto">自动选择</option><option value="local">Local（本机）</option><option value="docker">Docker（隔离）</option><option value="ssh">SSH 远程主机</option><option value="colab">Colab 风格平台</option><option value="platform">通用租赁平台</option></select><small id="runner-help">自动优先 Docker，回退到本机。</small></div>
+                    <div class="field toggle-field"><label>GPU 加速</label><div class="toggle-line"><input id="enable-gpu" name="enable_gpu" type="checkbox"><label for="enable-gpu">启用 CUDA / GPU 资源</label></div><small>执行器会导出 CUDA_VISIBLE_DEVICES。</small></div>
+                  </div>
+                  <div class="form-grid two">
+                    <div class="field"><label for="code-agent-select">CodeAgent</label><select id="code-agent-select" name="code_agent"><option value="none">关闭</option><option value="codex">Codex CLI</option><option value="claude">Claude Code</option><option value="gemini">Gemini CLI</option><option value="command">自定义命令</option></select><small>在隔离副本中生成 diff，不直接修改原工作区。</small></div>
+                    <div class="field" id="code-agent-command-field" hidden><label for="code-agent-command">CodeAgent 命令</label><input id="code-agent-command" name="code_agent_command" type="text" placeholder="codex exec --approve-for-me --ephemeral"></div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="panel form-section" id="runner-specific-section">
+                <div class="section-index">03</div>
+                <div class="section-body">
+                  <div class="section-title"><div><div class="eyebrow">COMPUTE TARGET</div><h3>执行器细节</h3></div><span class="section-note">可切换、可插拔</span></div>
+                  <div id="ssh-fields" class="form-grid two" hidden>
+                    <div class="field"><label for="ssh-host">SSH Host</label><input id="ssh-host" type="text" placeholder="asus@127.0.0.1"></div>
+                    <div class="field"><label for="ssh-port">SSH Port</label><input id="ssh-port" type="number" value="22"></div>
+                    <div class="field"><label for="ssh-identity">Identity File</label><input id="ssh-identity" type="text" placeholder="C:\\keys\\id_rsa"></div>
+                    <div class="field"><label for="ssh-base-dir">Remote Base Dir</label><input id="ssh-base-dir" type="text" value="/tmp/reprolens"></div>
+                  </div>
+                  <div id="platform-fields" class="form-grid two" hidden>
+                    <div class="field"><label for="platform-base-url">平台 Base URL</label><input id="platform-base-url" type="url" placeholder="http://127.0.0.1:8789"></div>
+                    <div class="field"><label for="platform-api-key">平台 API Key</label><input id="platform-api-key" type="password" placeholder="可选"></div>
+                    <div class="field"><label for="platform-provider">平台类型</label><input id="platform-provider" type="text" value="colab"></div>
+                    <div class="field"><label for="platform-image">运行镜像</label><input id="platform-image" type="text" value="python:3.11-slim"></div>
+                    <div class="field"><label for="platform-gpu-type">GPU 类型</label><input id="platform-gpu-type" type="text" placeholder="T4 / L4 / A100"></div>
+                    <div class="field"><label for="platform-min-vram">最低显存（GB）</label><input id="platform-min-vram" type="number" min="0" value="16"></div>
+                    <div class="field"><label for="platform-max-price">最高时价（USD）</label><input id="platform-max-price" type="number" min="0" step="0.01" value="0.50"></div>
+                    <div class="field"><label for="platform-poll">轮询间隔（ms）</label><input id="platform-poll" type="number" min="100" value="2000"></div>
+                  </div>
+                  <div id="docker-fields" class="info-box" hidden>Docker 执行器默认使用 <code>--network none</code>、只读根文件系统、2 GB 内存和 256 PID 限制；GPU 开启时追加 <code>--gpus all</code>。</div>
+                  <div id="local-fields" class="info-box" hidden>Local 执行器仅建议在回环地址使用；命令会经过单行白名单校验，但仍不等同于容器隔离。</div>
+                </div>
+              </section>
+            </div>
+
+            <aside class="form-aside">
+              <section class="panel sticky-panel">
+                <div class="panel-head"><div><div class="eyebrow">READY CHECK</div><h3>创建检查</h3></div></div>
+                <div class="check-list">
+                  <div><span class="check-icon" id="check-paper">○</span><span>论文 PDF</span></div>
+                  <div><span class="check-icon" id="check-repo">○</span><span>代码仓库</span></div>
+                  <div><span class="check-icon" id="check-model">○</span><span>模型接入</span></div>
+                  <div><span class="check-icon" id="check-runner">○</span><span>执行器配置</span></div>
+                </div>
+                <button class="button primary wide" id="create-project-button" type="submit">创建并开始摄取 <span>→</span></button>
+                <button class="button ghost wide" data-view="settings" type="button">先配置模型</button>
+                <p class="form-footnote">创建后会进入状态机：CREATED → INITIALIZED → INGESTED → AWAITING_CLAIMS。</p>
+              </section>
+            </aside>
+          </form>
+        </section>
+
+        <section class="view" id="view-projects" data-view-panel="projects">
+          <div class="page-heading compact"><div><div class="eyebrow">PROJECTS</div><h1>复现项目</h1><p class="page-lede">每个项目都有独立工作区、事件日志和证据目录。</p></div><button class="button primary" data-action="new-run" type="button">＋ 新建复现</button></div>
+          <div class="filter-bar"><input id="project-filter" type="search" placeholder="按名称、状态或论文标题筛选…"><span class="filter-count" id="project-filter-count">0 个项目</span></div>
+          <div class="project-list" id="project-list"><div class="empty-panel">载入中…</div></div>
+        </section>
+
+        <section class="view" id="view-project" data-view-panel="project">
+          <div class="project-header" id="project-header">
+            <div class="project-title-block"><button class="back-button" data-view="projects" type="button">← 项目</button><div class="eyebrow" id="project-eyebrow">PROJECT</div><h1 id="project-detail-name">未选择项目</h1><p id="project-detail-meta">—</p></div>
+            <div class="project-actions" id="project-actions"></div>
+          </div>
+          <div class="state-strip" id="state-strip"></div>
+          <div class="project-layout">
+            <div class="project-main">
+              <section class="panel" id="claims-panel"><div class="panel-head"><div><div class="eyebrow">CLAIMS</div><h3>候选实验主张</h3></div><button class="button small" id="select-claims-button" type="button" disabled>生成计划</button></div><div id="claims-list" class="stack empty-panel">开始摄取后显示论文中的可测主张。</div></section>
+              <section class="panel" id="plans-panel"><div class="panel-head"><div><div class="eyebrow">EXPERIMENT PLAN</div><h3>主张 → 实验映射</h3></div><span class="count-pill" id="plan-count">0</span></div><div id="plans-list" class="stack empty-panel">选择 claim 后生成计划。</div></section>
+              <section class="panel" id="patch-panel" hidden><div class="panel-head"><div><div class="eyebrow">HUMAN GATE</div><h3>最小补丁审批</h3></div><span class="status-pill warning" id="patch-status">proposed</span></div><div id="patch-diagnosis" class="diagnosis-box"></div><pre class="code-block diff-block" id="patch-diff"></pre><div class="button-row"><button class="button primary" id="approve-patch-button" type="button">审批并重跑</button><button class="button ghost" id="reject-patch-button" type="button">拒绝补丁</button></div></section>
+              <section class="panel" id="verification-panel" hidden><div class="panel-head"><div><div class="eyebrow">RULE-BASED VERDICT</div><h3>核验结果</h3></div><span class="verdict" id="verdict-pill">—</span></div><div id="verification-body"></div></section>
+              <section class="panel"><div class="panel-head"><div><div class="eyebrow">RUN HISTORY</div><h3>运行记录</h3></div><span class="count-pill" id="run-count">0</span></div><div id="runs-list" class="stack empty-panel">尚未运行。</div></section>
+            </div>
+            <aside class="project-side">
+              <section class="panel"><div class="panel-head"><div><div class="eyebrow">EVIDENCE</div><h3>交付物</h3></div></div><div class="deliverable-list" id="deliverables"><div class="empty-panel">尚未生成报告。</div></div></section>
+              <section class="panel"><div class="panel-head"><div><div class="eyebrow">EVENT STREAM</div><h3>事件日志</h3></div><span class="live-dot"><span></span> LIVE</span></div><div class="event-log" id="event-log"><div class="empty-panel">等待事件。</div></div></section>
+              <section class="panel"><div class="panel-head"><div><div class="eyebrow">SOURCE</div><h3>材料索引</h3></div></div><div id="source-index" class="source-index"></div></section>
+            </aside>
+          </div>
+        </section>
+
+        <section class="view" id="view-settings" data-view-panel="settings">
+          <div class="page-heading compact"><div><div class="eyebrow">RUNTIME SETTINGS</div><h1>模型与执行器设置</h1><p class="page-lede">保存后会立即替换当前 Orchestrator 的 Analyzer、Runner 与 CodeAgent，并持久化到 <code>data/settings.json</code>。</p></div><button class="button primary" id="save-settings-button" type="button">保存设置</button></div>
+          <div class="settings-grid">
+            <section class="panel settings-card">
+              <div class="panel-head"><div><div class="eyebrow">MODEL CONNECTION</div><h3>OpenAI-compatible 接入</h3></div><span class="status-pill" id="llm-status">未检测</span></div>
+              <div class="form-grid two">
+                <div class="field"><label for="settings-llm-preset">预设</label><select id="settings-llm-preset"><option value="">选择预设…</option></select></div>
+                <div class="field"><label for="settings-llm-model">模型名</label><input id="settings-llm-model" type="text" placeholder="deepseek-v4.1-flash"></div>
+                <div class="field full"><label for="settings-llm-base-url">Base URL</label><input id="settings-llm-base-url" type="url" placeholder="http://127.0.0.1:8788/v1"></div>
+                <div class="field full"><label for="settings-llm-api-key">API Key</label><input id="settings-llm-api-key" type="password" placeholder="留空表示保持当前 key"><small>本地部署可填写本地 key；设置文件不会被纳入版本控制。</small></div>
+                <div class="field"><label for="settings-llm-timeout">超时（ms）</label><input id="settings-llm-timeout" type="number" min="1000" value="60000"></div>
+                <div class="field toggle-field"><label>多模态</label><div class="toggle-line"><input id="settings-llm-vision" type="checkbox"><label for="settings-llm-vision">向模型发送 PDF 页面图像</label></div><small>模型不支持图像时会自动回退到文本提示。</small></div>
+              </div>
+              <div class="button-row"><button class="button" id="test-llm-button" type="button">测试连接</button><span class="inline-status" id="llm-test-result"></span></div>
+            </section>
+
+            <section class="panel settings-card">
+              <div class="panel-head"><div><div class="eyebrow">EXECUTION</div><h3>执行器与 GPU</h3></div></div>
+              <div class="form-grid two">
+                <div class="field"><label for="settings-runner">Runner</label><select id="settings-runner"><option value="auto">auto</option><option value="local">local</option><option value="docker">docker</option><option value="ssh">ssh</option><option value="colab">colab</option><option value="platform">platform</option></select></div>
+                <div class="field toggle-field"><label>GPU</label><div class="toggle-line"><input id="settings-gpu" type="checkbox"><label for="settings-gpu">启用 GPU 资源</label></div></div>
+                <div class="field"><label for="settings-code-agent">CodeAgent</label><select id="settings-code-agent"><option value="none">none</option><option value="codex">codex</option><option value="claude">claude</option><option value="gemini">gemini</option><option value="command">command</option></select></div>
+                <div class="field"><label for="settings-code-command">CodeAgent 命令</label><input id="settings-code-command" type="text" placeholder="codex exec --approve-for-me --ephemeral"></div>
+              </div>
+            </section>
+
+            <section class="panel settings-card">
+              <div class="panel-head"><div><div class="eyebrow">SSH HOST</div><h3>远程主机</h3></div></div>
+              <div class="form-grid two">
+                <div class="field"><label for="settings-ssh-host">Host</label><input id="settings-ssh-host" type="text" placeholder="asus@127.0.0.1"></div>
+                <div class="field"><label for="settings-ssh-port">Port</label><input id="settings-ssh-port" type="number" value="22"></div>
+                <div class="field"><label for="settings-ssh-identity">Identity</label><input id="settings-ssh-identity" type="text" placeholder="C:\\keys\\id_rsa"></div>
+                <div class="field"><label for="settings-ssh-base-dir">Base Dir</label><input id="settings-ssh-base-dir" type="text" value="/tmp/reprolens"></div>
+              </div>
+            </section>
+
+            <section class="panel settings-card">
+              <div class="panel-head"><div><div class="eyebrow">RENTAL PLATFORM</div><h3>Colab 风格平台</h3></div></div>
+              <div class="form-grid two">
+                <div class="field full"><label for="settings-platform-url">Base URL</label><input id="settings-platform-url" type="url" placeholder="http://127.0.0.1:8789"></div>
+                <div class="field"><label for="settings-platform-key">API Key</label><input id="settings-platform-key" type="password" placeholder="留空表示保持当前 key"></div>
+                <div class="field"><label for="settings-platform-provider">Provider</label><input id="settings-platform-provider" type="text" value="colab"></div>
+                <div class="field"><label for="settings-platform-image">Image</label><input id="settings-platform-image" type="text" value="python:3.11-slim"></div>
+                <div class="field"><label for="settings-platform-gpu">GPU Type</label><input id="settings-platform-gpu" type="text" placeholder="T4"></div>
+                <div class="field"><label for="settings-platform-vram">Min VRAM (GB)</label><input id="settings-platform-vram" type="number" min="0" value="16"></div>
+                <div class="field"><label for="settings-platform-price">Max USD/hr</label><input id="settings-platform-price" type="number" min="0" step="0.01" value="0.50"></div>
+                <div class="field"><label for="settings-platform-timeout">Timeout（ms）</label><input id="settings-platform-timeout" type="number" min="1000" value="1800000"></div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-docs" data-view-panel="docs">
+          <div class="page-heading compact"><div><div class="eyebrow">EXTENSION POINTS</div><h1>接口与扩展</h1><p class="page-lede">前端、CLI 和未来 MCP 适配器共享同一个 Orchestrator 与状态机。</p></div></div>
+          <div class="docs-grid">
+            <section class="panel"><div class="eyebrow">HTTP API</div><h3>核心路由</h3><pre class="code-block">GET  /healthz
+GET  /api/v1/projects
+POST /api/v1/projects
+POST /api/v1/demo
+POST /api/v1/projects/:id/start
+POST /api/v1/projects/:id/claims
+POST /api/v1/projects/:id/plan/confirm
+POST /api/v1/projects/:id/patch/approve
+POST /api/v1/projects/:id/patch/reject
+POST /api/v1/projects/:id/stop
+GET  /api/v1/projects/:id/events/stream
+GET  /api/v1/projects/:id/report.md
+GET  /api/v1/projects/:id/package
+GET  /api/v1/settings
+PUT  /api/v1/settings
+POST /api/v1/settings/test-llm
+POST /api/v1/uploads/paper
+POST /api/v1/uploads/repo</pre></section>
+            <section class="panel"><div class="eyebrow">INTERFACES</div><h3>可替换组件</h3><div class="interface-list"><div><strong>Analyzer</strong><span>Heuristic / OpenAI-compatible / Fallback</span></div><div><strong>Runner</strong><span>Local / Docker / SSH / Platform</span></div><div><strong>CodeAgent</strong><span>Mock / Codex / Claude / Gemini / Command</span></div><div><strong>Store</strong><span>Memory / SQLite</span></div></div></section>
+            <section class="panel"><div class="eyebrow">SAFETY</div><h3>边界</h3><p class="muted-copy">命令白名单、工作区路径校验、补丁路径穿越防护、CodeAgent 隔离副本、人工审批闸门，以及只由规则函数写入的最终 verdict。</p></section>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div class="command-modal" id="command-modal" hidden>
+    <div class="command-backdrop" data-close-command></div>
+    <div class="command-panel" role="dialog" aria-modal="true" aria-label="命令面板">
+      <div class="command-input-row"><span>⌘</span><input id="command-input" type="text" placeholder="输入命令：新建复现、设置、刷新…"><kbd>ESC</kbd></div>
+      <div class="command-results" id="command-results"></div>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

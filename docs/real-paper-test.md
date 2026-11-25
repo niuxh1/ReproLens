@@ -80,3 +80,14 @@ Then use ReproLens with:
 - budget: one run, 900 seconds
 
 The exact one-off runner is intentionally kept under `.work/` and is not part of the product API; the product path is the `Runner`, `Analyzer`, `CodeAgent`, and `Orchestrator` interfaces described in `docs/extension-points.md`.
+## TypeScript / Web 验证补充
+
+The current agent implementation is TypeScript. The same Grokfast evidence was produced by the Python reproduction harness and recorded through the ReproLens Runner / Orchestrator contract. The Web console can upload the original PDF, render every page to PNG, show the page count in the source index, and include the original PDF plus rendered pages in the downloadable evidence ZIP.
+
+Browser smoke flow verified:
+
+```text
+new run -> ingest -> select claim -> plan -> seed-mismatch patch -> human approval -> retry -> PASS
+```
+
+Screenshots: `docs/ui-overview.png`, `docs/ui-new-run.png`, `docs/ui-settings.png`, `docs/ui-project-pass.png`.

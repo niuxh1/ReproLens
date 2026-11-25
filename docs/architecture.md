@@ -7,16 +7,16 @@ ReproLens is a deterministic workflow with bounded intelligence. The state machi
 ## 2. Layers
 
 ```text
-CLI / optional HTTP API
-          |
-   Orchestrator (state machine, budget, approval, stop)
-     |        |          |             |
- Analyzer  CodeAgent   Runner        Store
-     |        |          |             |
- Paper/Repo  diff     local/docker   SQLite + event log
- parsing              ssh/platform
-          |
- Verifier (Go rules) -> Report / ZIP
+CLI / Fastify API / Web console
+              |
+       Orchestrator (state machine, budget, approval, stop)
+       |          |             |              |
+    Analyzer   CodeAgent      Runner          Store
+       |          |             |              |
+ PDF + repo     diff       local/docker     SQLite + event log
+ ingestion                  ssh/platform
+       |
+ Verifier (TypeScript rules) -> Report / ZIP
 ```
 
 ## 3. State machine
@@ -42,17 +42,17 @@ CREATED
 Any non-terminal state -> STOPPED (user stop)
 ```
 
-All transitions are defined in `internal/domain/state.go`. A state change is persisted before the next step, and every transition appends an event to the store.
+All transitions are defined in `src/domain/state.ts`. A state change is persisted before the next step, and every transition appends an event to the store.
 
 ## 4. Core interfaces
 
 | Interface | Location | Contract |
 |---|---|---|
-| `Analyzer` | `internal/agent/agent.go` | Extract claims, build plans, diagnose failures |
-| `Runner` | `internal/tools/runner.go` | Execute a command in local/Docker/SSH/platform environment |
-| `CodeAgent` | `internal/codeagent/agent.go` | Propose an implementation diff in a disposable copy |
-| `Store` | `internal/store/store.go` | Persist project aggregate and append-only events |
-| `Orchestrator` | `internal/orchestrator` | Own workflow transitions and approvals |
+| `Analyzer` | `src/agent/analyzer.ts` | Extract claims, build plans, diagnose failures |
+| `Runner` | `src/tools/runner.ts` | Execute a command in local/Docker/SSH/platform environment |
+| `CodeAgent` | `src/codeagent/code-agent.ts` | Propose an implementation diff in a disposable copy |
+| `Store` | `src/store/store.ts` | Persist project aggregate and append-only events |
+| `Orchestrator` | `src/orchestrator/orchestrator.ts` | Own workflow transitions and approvals |
 
 ## 5. Evidence model
 
@@ -60,7 +60,7 @@ Each run records project/claim ids, command, runner, image, provider, offer id, 
 
 Each patch records diagnosis/root cause, unified diff, changed files, approval identity/time, and CodeAgent name/version/log/summary when delegated.
 
-The ZIP package includes `manifest.json`, `project.json`, `events.json`, `report.md`, patch diff, and run logs.
+PDF evidence records page text, rendered page PNG, dimensions, caption candidates, and optional model visual analysis. The ZIP package includes `manifest.json`, `project.json`, `events.json`, `report.md`, patch diff, run logs, original PDF, and page PNGs.
 
 ## 6. Security boundaries
 
@@ -76,7 +76,7 @@ The ZIP package includes `manifest.json`, `project.json`, `events.json`, `report
 
 The Analyzer is intentionally separated from the CodeAgent:
 
-- Analyzer: scientific interpretation and diagnosis.
+- Analyzer: scientific interpretation, PDF page understanding, and diagnosis.
 - CodeAgent: code implementation/repair.
 - PatchManager: safety validation and application.
 - Verifier: deterministic metric comparison.
@@ -95,7 +95,7 @@ This prevents a code tool from making the test pass by changing the claim, metri
 
 - A failed run is diagnosed by the Analyzer.
 - If a safe patch is available, the workflow pauses at `AWAITING_PATCH`.
-- If no patch is available and `NeedsCodeAgent` is true, the orchestrator delegates implementation to the CodeAgent.
+- If no patch is available and `needs_code_agent` is true, the orchestrator delegates implementation to the CodeAgent.
 - The CodeAgent returns a diff; PatchManager validates it; the workflow pauses for approval.
 - If the budget, retry limit, or patch limit is exhausted, the workflow fails with evidence.
-- A user stop cancels the active job and records `STOPPED`.
+- A user stop aborts the active job and records `STOPPED`.

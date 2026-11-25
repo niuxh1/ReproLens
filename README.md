@@ -1,11 +1,13 @@
 # ReproLens（复现镜）
 
-ReproLens 是一个用 Go 实现的“主张驱动”论文实验复现 Agent。它不把“代码能跑”当成“论文复现成功”，而是把论文主张、实验计划、受控执行、失败诊断、代码实现委派、人工审批、规则核验和证据包串成一条可审计闭环。
+ReproLens 是一个用 **TypeScript / Node.js** 实现的“主张驱动”论文实验复现 Agent。它不把“代码能跑”当成“论文复现成功”，而是把论文主张、实验计划、受控执行、失败诊断、代码实现委派、人工审批、规则核验和证据包串成一条可审计闭环。
+
+![ReproLens overview](docs/ui-overview.png)
 
 ## 核心闭环
 
 ```text
-论文 + 代码仓库 + 公开数据
+原始 PDF + 代码仓库 + 数据
         ↓
 INIT / INGEST / CLAIMS
         ↓
@@ -15,157 +17,178 @@ SANDBOX / EXECUTE
         ↓
 失败 → DIAGNOSE → CodeAgent 实现/修复 → 人工审批 → RETRY
         ↓
-VERIFY（Go 规则计算，模型不能写 verdict）
+VERIFY（TypeScript 规则计算，模型不能写 verdict）
         ↓
 REPORT + ZIP 复现包
 ```
 
+## 技术栈
+
+| 层 | 选型 |
+|---|---|
+| 运行时 | Node.js 22+，推荐 Node.js 24 |
+| 语言 | TypeScript 5，`strict` 模式 |
+| HTTP / UI | Fastify + 原生 HTML/CSS/ESM 控制台 |
+| 持久化 | better-sqlite3（项目聚合 + 追加式事件日志） |
+| 模型 | OpenAI-compatible Chat Completions；支持多模态页面图像 |
+| PDF | `pdfjs-dist` 文本抽取 + `@napi-rs/canvas` 页面渲染 |
+| 归档 | tar.gz 工作区归档 + adm-zip 证据包 |
+| 测试 | Vitest |
+
 ## 不可破坏的约束
 
-- `PASS / DIFFERENT / INSUFFICIENT_EVIDENCE / FAILED` 只由 `internal/tools.VerifyMetric` 计算。
+- `PASS / DIFFERENT / INSUFFICIENT_EVIDENCE / FAILED` 只由 `src/tools/verify.ts` 的数值规则计算。
 - CodeAgent 只能在隔离副本中工作，返回统一 diff；不能直接改原始工作区。
-- 补丁必须经过路径校验、测试证据和人工审批才能应用。
+- 补丁必须经过路径校验、证据记录和人工审批才能应用。
 - 论文期望值、数据划分、指标定义和容差不能被代码 Agent 修改。
-- 本地 runner 仅用于演示/测试；真实隔离执行优先使用 Docker、SSH 或租赁平台。
+- Local runner 只用于演示/测试；真实隔离执行优先使用 Docker、SSH 或租赁平台。
 - 每次运行保存命令、退出码、耗时、stdout/stderr、环境、GPU、provider、job id 和日志路径。
+- PDF 不粗暴转文字：页面会渲染为 PNG，保留图表、表格和版式视觉证据；支持把页面图像发送给多模态模型。
 
 ## 可切换能力
 
-| 能力 | Go 接口 | 已实现 |
+| 能力 | TypeScript 接口 | 已实现 |
 |---|---|---|
-| 论文理解 | `internal/agent.Analyzer` | 启发式、OpenAI-compatible、失败回退 |
-| 执行器 | `internal/tools.Runner` | local、Docker、SSH、Colab 风格租赁平台 |
-| 代码实现器 | `internal/codeagent.Agent` | Mock、通用 CLI 适配器（Codex/Claude/Gemini） |
-| 状态存储 | `internal/store.Store` | Memory、SQLite |
-| 编排 | `internal/orchestrator.Orchestrator` | 确定性状态机、预算、审批、停止 |
-| 交互 | `internal/httpapi.Server` | 可选 HTTP API 与嵌入式仪表盘 |
+| 论文理解 | `src/agent/analyzer.ts` → `Analyzer` | Heuristic、OpenAI-compatible、Fallback |
+| 执行器 | `src/tools/runner.ts` → `Runner` | local、Docker、SSH、Colab 风格租赁平台 |
+| 代码实现器 | `src/codeagent/code-agent.ts` → `CodeAgent` | Mock、通用 CLI、Codex/Claude/Gemini 预设 |
+| 状态存储 | `src/store/store.ts` → `Store` | Memory、SQLite |
+| 编排 | `src/orchestrator/orchestrator.ts` | 确定性状态机、预算、审批、停止 |
+| 交互 | `src/httpapi/server.ts` + `src/cli.ts` | Web 控制台、HTTP API、CLI |
 
-未来网页端只需要构造这些接口的实现，或通过配置选择实现，不需要改动状态机和核验逻辑。详见 `docs/extension-points.md`。
+未来网页端、MCP 或其它执行平台只需要实现这些接口，不需要改状态机和核验逻辑。
 
 ## 快速开始
 
-要求 Go 1.26+（`go.mod` 会自动选择工具链）。
-
 ```powershell
-go test ./...
-go vet ./...
-go build ./...
+npm install
+npm run typecheck
+npm test
+npm run build
 ```
 
-本地 demo：
+启动 Web 控制台：
 
 ```powershell
-go run ./cmd/reprolens demo --auto-approve
-```
-
-Colab 风格租赁平台 demo（进程内 mock，自动选 T4、上传、提交、轮询、失败、补丁审批、重跑）：
-
-```powershell
-go run ./cmd/reprolens colab-demo
-```
-
-本地模型连通性：
-
-```powershell
-go run ./cmd/reprolens check-llm
-```
-
-可选的 HTTP 仪表盘：
-
-```powershell
-go run ./cmd/reprolens serve
+npm run serve
 # http://127.0.0.1:8080
 ```
 
-## 配置
+控制台包含：总览与项目列表；新建复现（PDF / 仓库 ZIP 上传、预算、runner、GPU、CodeAgent）；运行时设置（模型 Base URL、API Key、模型名、多模态开关、超时）；SSH / Colab 风格平台参数；项目详情（状态机、claims、plans、runs、补丁审批、规则 verdict、报告与证据包下载）；`Ctrl/Cmd + K` 命令面板；SSE 实时事件流。
 
-复制 `.env.example` 为 `.env`。主要配置：
+## CLI
+
+```powershell
+# 本地端到端 demo：失败 → 补丁 → 审批 → 重跑 → PASS
+npm run demo -- --auto-approve
+
+# Colab 风格平台 demo：选 T4 → 上传 → 提交 → 轮询 → 失败 → 补丁 → 重跑
+npm run colab-demo
+
+# 检查本地 OpenAI-compatible 接口
+npm run check-llm
+
+# 启动 Fastify 控制台
+npm run serve
+
+# 启动独立 Colab mock
+npm run mock-colab -- --addr 127.0.0.1:8789
+
+# SSH 部署探针
+npm run ssh-demo -- --host asus@127.0.0.1 --port 2222 --identity .work\ssh\reprolens_wsl_rsa --base-dir /home/asus/reprolens-test --gpu
+```
+
+## 模型接入配置
+
+`.env.example` 提供完整模板。最小模型配置：
 
 ```env
 REPROLENS_LLM_BASE_URL=http://127.0.0.1:8788/v1
-REPROLENS_LLM_API_KEY=...
+REPROLENS_LLM_API_KEY=replace-me
 REPROLENS_LLM_MODEL=deepseek-v4.1-flash
-REPROLENS_ENABLE_GPU=true
-
-# 选择执行器：auto | local | docker | ssh | colab | platform
-REPROLENS_RUNNER=auto
-
-# CodeAgent：none | claude | codex | gemini | command
-REPROLENS_CODE_AGENT=none
-REPROLENS_CODE_AGENT_CMD=
-REPROLENS_CODE_AGENT_TIMEOUT=10m
-REPROLENS_CODE_AGENT_RUN_ACCEPTANCE=false
+REPROLENS_LLM_TIMEOUT=60s
+REPROLENS_LLM_VISION=true
 ```
 
-Codex CLI 示例：
+也可以直接在 Web 控制台的 **运行时设置 → OpenAI-compatible 接入** 中填写并保存。保存后：
 
-```powershell
-$env:REPROLENS_CODE_AGENT='codex'
-go run ./cmd/reprolens serve
-```
+1. 立即替换当前 Orchestrator 的 Analyzer、Runner、CodeAgent；
+2. 写入 `data/settings.json`；
+3. API Key 在读取时只返回掩码，留空保存会保留原 key；
+4. 可用“测试连接”调用 `/api/v1/settings/test-llm`。
 
-默认 Codex 命令为：
+> 本地模型服务仅用于通路和功能测试；`data/settings.json`、`.env` 和 `data/` 不会进入版本控制。
+
+## PDF 视觉摄取
+
+`src/tools/paper.ts` 使用现成的 `pdfjs-dist` + `@napi-rs/canvas`：
+
+1. 从 PDF 提取逐页文本；
+2. 按页渲染 PNG（默认 1.5x，最多 1800px 宽）；
+3. 保留 `Figure / Fig. / Table / 图 / 表` 等 caption 候选；
+4. 生成 `PaperPage[]` 与 `PaperVisual[]`；
+5. 若 `REPROLENS_LLM_VISION=true`，Analyzer 会把页面图像作为 `image_url` 发送给多模态模型；
+6. 模型不支持图像或请求失败时，自动回退到文本提示，但页面图像仍保留在证据包中。
+
+每个项目的证据目录包含：
 
 ```text
-codex exec --approve-for-me --ephemeral
+data/projects/<project-id>/evidence/paper/page-001.png
+data/projects/<project-id>/evidence/paper/page-002.png
 ```
 
-Claude Code 适配器默认命令为：
+报告 ZIP 会同时包含原始 PDF、页面 PNG、运行日志、事件、项目快照、补丁和 Markdown 报告。
 
-```text
-claude -p --allowedTools Read,Edit,Write,Bash
-```
+## 执行器
 
-本机 Claude Code 当前模型配置异常，因此实际委派验证使用 Codex CLI；通用命令适配器可切换任意代码工具。
+### Local
 
-## SSH 远程主机
+- 单行命令白名单；
+- 工作目录必须位于 workspace 内；
+- 可选 CUDA 环境变量；
+- 仅建议在回环地址演示使用。
 
-真实 SSH 适配器支持 scp + ssh，在远程目录中解压工作区并运行命令。WSL2 上的 dropbear 已完成真实部署验证：
+### Docker
 
-```powershell
-go run ./cmd/reprolens ssh-demo `
-  --host asus@127.0.0.1 `
-  --port 2222 `
-  --identity .work\ssh\reprolens_wsl_rsa `
-  --base-dir /home/asus/reprolens-test `
-  --gpu
-```
+- `--network none`；
+- `--read-only`；
+- 内存、CPU、PID 限制；
+- `--cap-drop ALL` 与 `no-new-privileges`；
+- GPU 开启时追加 `--gpus all`。
 
-验证输出包含 `SSH_DEPLOY_OK` 和 WSL 可见的 RTX 4060。实际服务器只需替换 Host、Port、Identity 和 BaseDir。
+### SSH
 
-## Colab 风格租赁平台
+- `scp -O` 上传 tar.gz 和运行脚本；
+- `ssh` 远程解压并执行；
+- 支持 WSL / dropbear 验证；
+- 记录 remote job id、GPU 与 stdout/stderr。
 
-`internal/tools.PlatformRunner` 实现了完整的租赁平台流程：
+### Colab 风格租赁平台
 
-1. 读取平台 offers；
+`PlatformRunner` 实现：
+
+1. 读取 `/v1/offers`；
 2. 按 GPU、VRAM、价格和 provider 自动选择最便宜的可用 offer；
-3. 上传工作区 tar.gz；
-4. 提交 Job；
+3. 上传工作区；
+4. 提交 job；
 5. 轮询状态；
-6. 拉取 stdout/stderr；
+6. 拉取日志；
 7. 将 provider、offer id、job id、GPU 写入证据。
 
-`internal/platformmock` 提供本地 mock 平台，用于验证选卡、上传、轮询和失败重试。真实平台只需实现文档中的 HTTP 合同并配置：
-
-```env
-REPROLENS_RUNNER=colab
-REPROLENS_PLATFORM_BASE_URL=https://your-platform.example/v1
-REPROLENS_PLATFORM_API_KEY=...
-REPROLENS_PLATFORM_MIN_VRAM_GB=16
-REPROLENS_PLATFORM_MAX_HOURLY_USD=0.5
-```
+本地 mock 在 `src/platformmock/server.ts`，真实平台只需实现 `docs/api.md` 中的 HTTP 合同。
 
 ## CodeAgent 委派
 
-当诊断标记 `NeedsCodeAgent` 且没有现成补丁时，Orchestrator 会：
+当诊断标记 `needs_code_agent` 且没有现成补丁时，Orchestrator 会：
 
-1. 将工作区复制到证据目录下的隔离副本；
-2. 生成受约束的开发任务；
-3. 调用配置的代码工具；
-4. 运行可选验收命令；
-5. 用 git 生成统一 diff；
-6. 校验 diff 路径与新增文件；
-7. 将补丁置为 `proposed`，等待人工审批。
+1. 将工作区复制到 `evidence/codeagent/<run-id>/workspace-*`；
+2. 初始化 git baseline；
+3. 生成受约束的开发任务；
+4. 调用配置的代码工具；
+5. 可选执行验收命令；
+6. 用 git 生成统一 diff；
+7. 校验 diff 路径与新增文件；
+8. 将补丁置为 `proposed`，等待人工审批。
 
 CodeAgent 不会直接写原始工作区，也不会写最终 verdict。
 
@@ -184,28 +207,32 @@ CodeAgent 不会直接写原始工作区，也不会写最终 verdict。
 ## 目录
 
 ```text
-cmd/reprolens/        CLI：serve / demo / colab-demo / ssh-demo / mock-colab / check-llm
-internal/agent/       论文理解、诊断、模型回退
-internal/codeagent/   CodeAgent 接口、Mock、通用 CLI 适配器
-internal/domain/      聚合模型、状态机、证据结构
-internal/orchestrator/确定性编排、审批、停止、预算
-internal/store/       Memory / SQLite 存储
-internal/tools/       论文/仓库解析、workspace、runner、patch、verify、report
-internal/platformmock/ Colab 风格租赁平台 mock
-internal/httpapi/     可选 HTTP API 与仪表盘
-examples/             真实案例与复现脚本
-docs/                 架构、接口、真实案例说明
+src/cli.ts                  CLI：serve / demo / colab-demo / ssh-demo / mock-colab / check-llm
+src/config.ts               环境变量与配置校验
+src/runtime.ts              Analyzer / Runner / CodeAgent 构造与运行时设置持久化
+src/agent/                  启发式、OpenAI-compatible、回退分析器
+src/codeagent/              CodeAgent 接口、Mock、CLI 适配器
+src/domain/                 状态机与领域类型
+src/orchestrator/           确定性编排、审批、停止、预算
+src/store/                  Memory / SQLite 存储
+src/tools/                  PDF、仓库、workspace、runner、patch、verify、report
+src/platformmock/           Colab 风格租赁平台 mock
+src/httpapi/                Fastify API 与静态控制台
+public/                     Codex 风格控制台 HTML/CSS/JS
+tests/                      Vitest 单元与集成测试
+examples/                   真实案例与复现脚本
+docs/                       架构、接口、真实案例说明
 ```
 
 ## 测试
 
 ```powershell
-go test ./...
-go vet ./...
-go build ./...
+npm run typecheck
+npm test
+npm run build
 ```
 
-测试覆盖状态机、SQLite、事件序号、claim 抽取/去重、补丁路径与新增文件、GPU 参数、SSH 参数、Colab 平台选卡/轮询、CodeAgent diff、规则核验、报告/ZIP 和端到端 demo。
+测试覆盖状态机、SQLite、事件序号、claim 抽取/去重、PDF 页面视觉证据、补丁路径与新增文件、GPU 参数、SSH 参数、Colab 平台选卡/轮询、CodeAgent diff、规则核验、报告/ZIP、运行时设置和端到端 demo。
 
 ## 限制
 

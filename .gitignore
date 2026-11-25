@@ -2,11 +2,11 @@
 .env
 .env.local
 data/
+data-*/
+node_modules/
 dist/
-# Go build output
-*.exe
-*.test
-*.out
+*.log
+*.tsbuildinfo
 # Editors / OS
 .vscode/
 .DS_Store
