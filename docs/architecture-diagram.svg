@@ -1,184 +1,321 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1000" viewBox="0 0 1800 1000" role="img" aria-labelledby="title desc">
-<title id="title">ReproLens Agent Architecture Tree</title>
-<desc id="desc">Tree architecture of ReproLens: control plane, intelligence, execution, and evidence.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1900" viewBox="0 0 2400 1900" role="img" aria-labelledby="title desc">
+<title id="title">ReproLens 智能体架构与状态流转</title>
+<desc id="desc">中文详细架构图：分层功能树、确定性状态机、证据链与可切换接口。</desc>
 <defs>
-<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fbfdfd"/><stop offset="1" stop-color="#f1f7f8"/></linearGradient>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fbfdfd"/><stop offset="1" stop-color="#f0f7f8"/></linearGradient>
 <linearGradient id="header" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#09293a"/><stop offset="0.6" stop-color="#103e53"/><stop offset="1" stop-color="#0d5f5b"/></linearGradient>
+<linearGradient id="panel" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#f8fcfc"/></linearGradient>
 <pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse"><path d="M36 0H0V36" fill="none" stroke="#8fa6b1" stroke-width="0.55" opacity="0.13"/></pattern>
 <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="7" stdDeviation="11" flood-color="#163c4c" flood-opacity="0.09"/></filter>
+<marker id="arrow" markerWidth="10" markerHeight="10" refX="8.5" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8fa6b1"/></marker>
+<marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="8.5" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#15803d"/></marker>
+<marker id="arrowAmber" markerWidth="10" markerHeight="10" refX="8.5" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#b45309"/></marker>
+<marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="8.5" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/></marker>
 </defs>
-<rect width="1800" height="1000" fill="url(#bg)"/><rect width="1800" height="1000" fill="url(#grid)"/>
-<rect width="1800" height="92" fill="url(#header)"/>
-<circle cx="54" cy="46" r="22" fill="rgba(255,255,255,0.09)" stroke="rgba(255,255,255,0.35)"/>
-<circle cx="50" cy="42" r="8" fill="none" stroke="#d8fff9" stroke-width="2"/>
-<line x1="56" y1="48" x2="65" y2="57" stroke="#d8fff9" stroke-width="2" stroke-linecap="round"/>
-<text x="88" y="42" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="27" font-weight="800" fill="#ffffff" text-anchor="start" letter-spacing="-0.4">ReproLens</text>
-<text x="88" y="65" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="13" font-weight="500" fill="#b8d9e4" text-anchor="start" letter-spacing="0">复现镜 · 论文实验复现与结果核验 Agent</text>
-<text x="1740" y="40" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="11" font-weight="800" fill="#a9d8d2" text-anchor="end" letter-spacing="2">ARCHITECTURE TREE</text>
-<text x="1740" y="62" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="500" fill="#d4edf1" text-anchor="end" letter-spacing="0">Go · deterministic · evidence-backed</text>
-<rect x="710" y="128" width="380" height="82" rx="16" fill="#ffffff" stroke="#b7d5db" stroke-width="1.6" filter="url(#shadow)"/>
-<text x="900" y="157" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="23" font-weight="800" fill="#0b2c3d" text-anchor="middle" letter-spacing="0">ReproLens Agent</text>
-<text x="900" y="181" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="500" fill="#667a86" text-anchor="middle" letter-spacing="0">claim-driven reproduction · bounded intelligence</text>
-<rect x="1020" y="138" width="52" height="20" rx="10.0" fill="#e8f5f3" stroke="#e8f5f3" stroke-width="0"/>
-<text x="1046.0" y="151.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="700" fill="#0f766e" text-anchor="middle" letter-spacing="0">root</text>
-<line x1="900" y1="210" x2="900" y2="246" stroke="#8fa6b1" stroke-width="2"/>
-<line x1="260" y1="246" x2="1540" y2="246" stroke="#8fa6b1" stroke-width="2"/>
-<line x1="260" y1="246" x2="260" y2="286" stroke="#8fa6b1" stroke-width="2"/>
-<line x1="660" y1="246" x2="660" y2="286" stroke="#8fa6b1" stroke-width="2"/>
-<line x1="1060" y1="246" x2="1060" y2="286" stroke="#8fa6b1" stroke-width="2"/>
-<line x1="1540" y1="246" x2="1540" y2="286" stroke="#8fa6b1" stroke-width="2"/>
-<rect x="80" y="286" width="360" height="72" rx="14" fill="#ffffff" stroke="#d8e5ea" stroke-width="1.4" filter="url(#shadow)"/>
-<rect x="80" y="286" width="6" height="72" rx="3" fill="#0f766e"/>
-<text x="104" y="314" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="15" font-weight="800" fill="#0f766e" text-anchor="start" letter-spacing="0.8">CONTROL PLANE</text>
-<text x="104" y="338" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">流程与人工门禁</text>
-<circle cx="260.0" cy="358" r="3" fill="#0f766e"/>
-<rect x="480" y="286" width="360" height="72" rx="14" fill="#ffffff" stroke="#d8e5ea" stroke-width="1.4" filter="url(#shadow)"/>
-<rect x="480" y="286" width="6" height="72" rx="3" fill="#2563eb"/>
-<text x="504" y="314" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="15" font-weight="800" fill="#2563eb" text-anchor="start" letter-spacing="0.8">INTELLIGENCE</text>
-<text x="504" y="338" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">理解、规划与代码委派</text>
-<circle cx="660.0" cy="358" r="3" fill="#2563eb"/>
-<rect x="880" y="286" width="360" height="72" rx="14" fill="#ffffff" stroke="#d8e5ea" stroke-width="1.4" filter="url(#shadow)"/>
-<rect x="880" y="286" width="6" height="72" rx="3" fill="#b45309"/>
-<text x="904" y="314" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="15" font-weight="800" fill="#b45309" text-anchor="start" letter-spacing="0.8">EXECUTION</text>
-<text x="904" y="338" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">隔离运行与算力适配</text>
-<circle cx="1060.0" cy="358" r="3" fill="#b45309"/>
-<rect x="1280" y="286" width="440" height="72" rx="14" fill="#ffffff" stroke="#d8e5ea" stroke-width="1.4" filter="url(#shadow)"/>
-<rect x="1280" y="286" width="6" height="72" rx="3" fill="#15803d"/>
-<text x="1304" y="314" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="15" font-weight="800" fill="#15803d" text-anchor="start" letter-spacing="0.8">EVIDENCE &amp; DELIVERY</text>
-<text x="1304" y="338" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">规则核验与证据交付</text>
-<circle cx="1500.0" cy="358" r="3" fill="#15803d"/>
-<line x1="260.0" y1="358" x2="260.0" y2="402" stroke="#8fa6b1" stroke-width="2"/>
-<line x1="260.0" y1="402" x2="260.0" y2="420" stroke="#8fa6b1" stroke-width="2"/>
-<rect x="80" y="420" width="360" height="68" rx="12" fill="#ffffff" stroke="#dce8ec" stroke-width="1.2" filter="url(#shadow)"/>
-<rect x="80" y="420" width="5" height="68" rx="2.5" fill="#0f766e"/>
-<text x="102" y="447" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="15" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">Orchestrator</text>
-<text x="102" y="469" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="11" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">state machine · budget · stop</text>
-<rect x="358" y="432" width="66" height="18" rx="9.0" fill="#f1f6f8" stroke="#f1f6f8" stroke-width="0"/>
-<text x="391.0" y="444.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="700" fill="#0f766e" text-anchor="middle" letter-spacing="0">control</text>
-<line x1="260.0" y1="494" x2="260.0" y2="512" stroke="#8fa6b1" stroke-width="2"/>
-<rect x="80" y="512" width="360" height="68" rx="12" fill="#ffffff" stroke="#dce8ec" stroke-width="1.2" filter="url(#shadow)"/>
-<rect x="80" y="512" width="5" height="68" rx="2.5" fill="#0f766e"/>
-<text x="102" y="539" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="15" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">Human Approval</text>
-<text x="102" y="561" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="11" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">claim · plan · patch gate</text>
-<rect x="358" y="524" width="66" height="18" rx="9.0" fill="#f1f6f8" stroke="#f1f6f8" stroke-width="0"/>
-<text x="391.0" y="536.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="700" fill="#0f766e" text-anchor="middle" letter-spacing="0">human</text>
-<line x1="260.0" y1="586" x2="260.0" y2="604" stroke="#8fa6b1" stroke-width="2"/>
-<rect x="80" y="604" width="360" height="68" rx="12" fill="#ffffff" stroke="#dce8ec" stroke-width="1.2" filter="url(#shadow)"/>
-<rect x="80" y="604" width="5" height="68" rx="2.5" fill="#0f766e"/>
-<text x="102" y="631" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="15" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">PatchManager</text>
-<text x="102" y="653" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="11" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">path check · diff · rollback</text>
-<rect x="358" y="616" width="66" height="18" rx="9.0" fill="#f1f6f8" stroke="#f1f6f8" stroke-width="0"/>
-<text x="391.0" y="628.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="700" fill="#0f766e" text-anchor="middle" letter-spacing="0">safety</text>
-<line x1="660.0" y1="358" x2="660.0" y2="402" stroke="#8fa6b1" stroke-width="2"/>
-<line x1="660.0" y1="402" x2="660.0" y2="420" stroke="#8fa6b1" stroke-width="2"/>
-<rect x="480" y="420" width="360" height="68" rx="12" fill="#ffffff" stroke="#dce8ec" stroke-width="1.2" filter="url(#shadow)"/>
-<rect x="480" y="420" width="5" height="68" rx="2.5" fill="#2563eb"/>
-<text x="502" y="447" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="15" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">Analyzer</text>
-<text x="502" y="469" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="11" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">Heuristic · LLM · Fallback</text>
-<rect x="758" y="432" width="66" height="18" rx="9.0" fill="#f1f6f8" stroke="#f1f6f8" stroke-width="0"/>
-<text x="791.0" y="444.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="700" fill="#2563eb" text-anchor="middle" letter-spacing="0">interface</text>
-<line x1="660.0" y1="494" x2="660.0" y2="512" stroke="#8fa6b1" stroke-width="2"/>
-<rect x="480" y="512" width="360" height="68" rx="12" fill="#ffffff" stroke="#dce8ec" stroke-width="1.2" filter="url(#shadow)"/>
-<rect x="480" y="512" width="5" height="68" rx="2.5" fill="#2563eb"/>
-<text x="502" y="539" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="15" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">CodeAgent</text>
-<text x="502" y="561" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="11" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">Codex · Claude · Gemini · Mock</text>
-<rect x="758" y="524" width="66" height="18" rx="9.0" fill="#f1f6f8" stroke="#f1f6f8" stroke-width="0"/>
-<text x="791.0" y="536.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="700" fill="#2563eb" text-anchor="middle" letter-spacing="0">interface</text>
-<line x1="660.0" y1="586" x2="660.0" y2="604" stroke="#8fa6b1" stroke-width="2"/>
-<rect x="480" y="604" width="360" height="68" rx="12" fill="#ffffff" stroke="#dce8ec" stroke-width="1.2" filter="url(#shadow)"/>
-<rect x="480" y="604" width="5" height="68" rx="2.5" fill="#2563eb"/>
-<text x="502" y="631" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="15" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">Diagnosis</text>
-<text x="502" y="653" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="11" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">failure class → patch / delegate</text>
-<rect x="758" y="616" width="66" height="18" rx="9.0" fill="#f1f6f8" stroke="#f1f6f8" stroke-width="0"/>
-<text x="791.0" y="628.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="700" fill="#2563eb" text-anchor="middle" letter-spacing="0">reasoning</text>
-<line x1="1060.0" y1="358" x2="1060.0" y2="402" stroke="#8fa6b1" stroke-width="2"/>
-<line x1="1060.0" y1="402" x2="1060.0" y2="420" stroke="#8fa6b1" stroke-width="2"/>
-<rect x="880" y="420" width="360" height="68" rx="12" fill="#ffffff" stroke="#dce8ec" stroke-width="1.2" filter="url(#shadow)"/>
-<rect x="880" y="420" width="5" height="68" rx="2.5" fill="#b45309"/>
-<text x="902" y="447" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="15" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">Tools / Workspace</text>
-<text x="902" y="469" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="11" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">paper · repo · parsers · sandbox</text>
-<rect x="1158" y="432" width="66" height="18" rx="9.0" fill="#f1f6f8" stroke="#f1f6f8" stroke-width="0"/>
-<text x="1191.0" y="444.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="700" fill="#b45309" text-anchor="middle" letter-spacing="0">tools</text>
-<line x1="1060.0" y1="494" x2="1060.0" y2="512" stroke="#8fa6b1" stroke-width="2"/>
-<rect x="880" y="512" width="360" height="68" rx="12" fill="#ffffff" stroke="#dce8ec" stroke-width="1.2" filter="url(#shadow)"/>
-<rect x="880" y="512" width="5" height="68" rx="2.5" fill="#b45309"/>
-<text x="902" y="539" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="15" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">Runner</text>
-<text x="902" y="561" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="11" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">Local · Docker · SSH · Colab</text>
-<rect x="1158" y="524" width="66" height="18" rx="9.0" fill="#f1f6f8" stroke="#f1f6f8" stroke-width="0"/>
-<text x="1191.0" y="536.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="700" fill="#b45309" text-anchor="middle" letter-spacing="0">interface</text>
-<line x1="1060.0" y1="586" x2="1060.0" y2="604" stroke="#8fa6b1" stroke-width="2"/>
-<rect x="880" y="604" width="360" height="68" rx="12" fill="#ffffff" stroke="#dce8ec" stroke-width="1.2" filter="url(#shadow)"/>
-<rect x="880" y="604" width="5" height="68" rx="2.5" fill="#b45309"/>
-<text x="902" y="631" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="15" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">GPU / Platform</text>
-<text x="902" y="653" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="11" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">offer select · CUDA · job polling</text>
-<rect x="1158" y="616" width="66" height="18" rx="9.0" fill="#f1f6f8" stroke="#f1f6f8" stroke-width="0"/>
-<text x="1191.0" y="628.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="700" fill="#b45309" text-anchor="middle" letter-spacing="0">execution</text>
-<line x1="1500.0" y1="358" x2="1500.0" y2="402" stroke="#8fa6b1" stroke-width="2"/>
-<line x1="1500.0" y1="402" x2="1500.0" y2="420" stroke="#8fa6b1" stroke-width="2"/>
-<rect x="1280" y="420" width="440" height="68" rx="12" fill="#ffffff" stroke="#dce8ec" stroke-width="1.2" filter="url(#shadow)"/>
-<rect x="1280" y="420" width="5" height="68" rx="2.5" fill="#15803d"/>
-<text x="1302" y="447" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="15" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">Store</text>
-<text x="1302" y="469" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="11" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">SQLite aggregate · append-only events</text>
-<rect x="1638" y="432" width="66" height="18" rx="9.0" fill="#f1f6f8" stroke="#f1f6f8" stroke-width="0"/>
-<text x="1671.0" y="444.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="700" fill="#15803d" text-anchor="middle" letter-spacing="0">interface</text>
-<line x1="1500.0" y1="494" x2="1500.0" y2="512" stroke="#8fa6b1" stroke-width="2"/>
-<rect x="1280" y="512" width="440" height="68" rx="12" fill="#ffffff" stroke="#dce8ec" stroke-width="1.2" filter="url(#shadow)"/>
-<rect x="1280" y="512" width="5" height="68" rx="2.5" fill="#15803d"/>
-<text x="1302" y="539" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="15" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">Verifier</text>
-<text x="1302" y="561" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="11" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">PASS · DIFFERENT · INSUFFICIENT · FAILED</text>
-<rect x="1638" y="524" width="66" height="18" rx="9.0" fill="#f1f6f8" stroke="#f1f6f8" stroke-width="0"/>
-<text x="1671.0" y="536.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="700" fill="#15803d" text-anchor="middle" letter-spacing="0">Go rules</text>
-<line x1="1500.0" y1="586" x2="1500.0" y2="604" stroke="#8fa6b1" stroke-width="2"/>
-<rect x="1280" y="604" width="440" height="68" rx="12" fill="#ffffff" stroke="#dce8ec" stroke-width="1.2" filter="url(#shadow)"/>
-<rect x="1280" y="604" width="5" height="68" rx="2.5" fill="#15803d"/>
-<text x="1302" y="631" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="15" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">Report + ZIP</text>
-<text x="1302" y="653" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="11" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">report.md · manifest · evidence index</text>
-<rect x="1638" y="616" width="66" height="18" rx="9.0" fill="#f1f6f8" stroke="#f1f6f8" stroke-width="0"/>
-<text x="1671.0" y="628.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="700" fill="#15803d" text-anchor="middle" letter-spacing="0">delivery</text>
-<line x1="40" y1="790" x2="1760" y2="790" stroke="#d8e5ea" stroke-width="1.2"/>
-<text x="40" y="821" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="800" fill="#0f766e" text-anchor="start" letter-spacing="1.2">INVARIANTS</text>
-<rect x="132" y="804" width="176" height="25" rx="12.5" fill="#eaf7ef" stroke="#eaf7ef" stroke-width="0"/>
-<text x="220.0" y="820.0" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#15803d" text-anchor="middle" letter-spacing="0">Model cannot write verdict</text>
-<rect x="322" y="804" width="170" height="25" rx="12.5" fill="#fff7ed" stroke="#fff7ed" stroke-width="0"/>
-<text x="407.0" y="820.0" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#b45309" text-anchor="middle" letter-spacing="0">Patch requires approval</text>
-<rect x="506" y="804" width="168" height="25" rx="12.5" fill="#eef3ff" stroke="#eef3ff" stroke-width="0"/>
-<text x="590.0" y="820.0" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#2563eb" text-anchor="middle" letter-spacing="0">Workspace-contained</text>
-<text x="1740" y="821" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="11" font-weight="600" fill="#667a86" text-anchor="end" letter-spacing="0">evidence before claims</text>
-<rect x="40" y="850" width="1720" height="100" rx="16" fill="rgba(255,255,255,0.74)" stroke="#d8e5ea" stroke-width="1.2" filter="url(#shadow)"/>
-<text x="68" y="880" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="800" fill="#0f766e" text-anchor="start" letter-spacing="1.2">WORKFLOW</text>
-<rect x="68" y="896" width="130" height="34" rx="9" fill="#f9fcfc" stroke="#d8e5ea" stroke-width="1"/>
-<text x="133.0" y="918" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="800" fill="#0b2c3d" text-anchor="middle" letter-spacing="0">INIT</text>
-<line x1="198" y1="913" x2="214" y2="913" stroke="#8fa6b1" stroke-width="1.6"/>
-<rect x="214" y="896" width="130" height="34" rx="9" fill="#f9fcfc" stroke="#d8e5ea" stroke-width="1"/>
-<text x="279.0" y="918" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="800" fill="#0b2c3d" text-anchor="middle" letter-spacing="0">INGEST</text>
-<line x1="344" y1="913" x2="360" y2="913" stroke="#8fa6b1" stroke-width="1.6"/>
-<rect x="360" y="896" width="130" height="34" rx="9" fill="#f9fcfc" stroke="#d8e5ea" stroke-width="1"/>
-<text x="425.0" y="918" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="800" fill="#0b2c3d" text-anchor="middle" letter-spacing="0">CLAIMS</text>
-<line x1="490" y1="913" x2="506" y2="913" stroke="#8fa6b1" stroke-width="1.6"/>
-<rect x="506" y="896" width="130" height="34" rx="9" fill="#f9fcfc" stroke="#d8e5ea" stroke-width="1"/>
-<text x="571.0" y="918" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="800" fill="#0b2c3d" text-anchor="middle" letter-spacing="0">PLAN</text>
-<line x1="636" y1="913" x2="652" y2="913" stroke="#8fa6b1" stroke-width="1.6"/>
-<rect x="652" y="896" width="130" height="34" rx="9" fill="#f9fcfc" stroke="#d8e5ea" stroke-width="1"/>
-<text x="717.0" y="918" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="800" fill="#0b2c3d" text-anchor="middle" letter-spacing="0">SANDBOX</text>
-<line x1="782" y1="913" x2="798" y2="913" stroke="#8fa6b1" stroke-width="1.6"/>
-<rect x="798" y="896" width="130" height="34" rx="9" fill="#f9fcfc" stroke="#d8e5ea" stroke-width="1"/>
-<text x="863.0" y="918" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="800" fill="#0b2c3d" text-anchor="middle" letter-spacing="0">EXECUTE</text>
-<line x1="928" y1="913" x2="944" y2="913" stroke="#8fa6b1" stroke-width="1.6"/>
-<rect x="944" y="896" width="130" height="34" rx="9" fill="#f9fcfc" stroke="#d8e5ea" stroke-width="1"/>
-<text x="1009.0" y="918" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="800" fill="#0b2c3d" text-anchor="middle" letter-spacing="0">DIAGNOSE</text>
-<line x1="1074" y1="913" x2="1090" y2="913" stroke="#8fa6b1" stroke-width="1.6"/>
-<rect x="1090" y="896" width="130" height="34" rx="9" fill="#fff7ed" stroke="#efd3ae" stroke-width="1"/>
-<text x="1155.0" y="918" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="800" fill="#0b2c3d" text-anchor="middle" letter-spacing="0">PATCH</text>
-<line x1="1220" y1="913" x2="1236" y2="913" stroke="#8fa6b1" stroke-width="1.6"/>
-<rect x="1236" y="896" width="130" height="34" rx="9" fill="#f9fcfc" stroke="#d8e5ea" stroke-width="1"/>
-<text x="1301.0" y="918" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="800" fill="#0b2c3d" text-anchor="middle" letter-spacing="0">RETRY</text>
-<line x1="1366" y1="913" x2="1382" y2="913" stroke="#8fa6b1" stroke-width="1.6"/>
-<rect x="1382" y="896" width="130" height="34" rx="9" fill="#f9fcfc" stroke="#d8e5ea" stroke-width="1"/>
-<text x="1447.0" y="918" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="800" fill="#0b2c3d" text-anchor="middle" letter-spacing="0">VERIFY</text>
-<line x1="1512" y1="913" x2="1528" y2="913" stroke="#8fa6b1" stroke-width="1.6"/>
-<rect x="1528" y="896" width="130" height="34" rx="9" fill="#f9fcfc" stroke="#d8e5ea" stroke-width="1"/>
-<text x="1593.0" y="918" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="800" fill="#0b2c3d" text-anchor="middle" letter-spacing="0">REPORT</text>
-<line x1="40" y1="974" x2="1760" y2="974" stroke="#d8e5ea" stroke-width="1"/>
-<text x="40" y="995" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="600" fill="#667a86" text-anchor="start" letter-spacing="0">ReproLens · Go implementation · deterministic control · evidence-backed reproduction</text>
-<text x="1760" y="995" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="600" fill="#8fa6b1" text-anchor="end" letter-spacing="0">architecture tree</text>
+<rect width="2400" height="1900" fill="url(#bg)"/><rect width="2400" height="1900" fill="url(#grid)"/>
+<rect width="2400" height="112" fill="url(#header)"/>
+<circle cx="58" cy="55" r="25" fill="rgba(255,255,255,0.09)" stroke="rgba(255,255,255,0.35)"/>
+<circle cx="53" cy="50" r="9" fill="none" stroke="#d8fff9" stroke-width="2.2"/>
+<line x1="60" y1="57" x2="70" y2="67" stroke="#d8fff9" stroke-width="2.2" stroke-linecap="round"/>
+<text x="96" y="50" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="30" font-weight="800" fill="#ffffff" text-anchor="start" letter-spacing="-0.4">ReproLens 复现镜</text>
+<text x="96" y="78" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="15" font-weight="500" fill="#b8d9e4" text-anchor="start" letter-spacing="0">论文实验复现与结果核验 Agent · 详细架构与状态流转</text>
+<text x="2340" y="45" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="800" fill="#a9d8d2" text-anchor="end" letter-spacing="1.5">架构详图 / ARCHITECTURE</text>
+<text x="2340" y="70" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="13" font-weight="500" fill="#d4edf1" text-anchor="end" letter-spacing="0">Go · 确定性控制 · 证据驱动</text>
+<text x="50" y="150" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="24" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">一、分层功能树</text>
+<text x="260" y="150" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="13" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">交互与治理 → 智能与工具 → 执行与算力 → 证据与交付</text>
+<rect x="1030" y="168" width="340" height="70" rx="16" fill="#ffffff" stroke="#b7d5db" stroke-width="1.5" filter="url(#shadow)"/>
+<text x="1200" y="196" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="22" font-weight="800" fill="#0b2c3d" text-anchor="middle" letter-spacing="0">ReproLens Agent</text>
+<text x="1200" y="219" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="11" font-weight="500" fill="#667a86" text-anchor="middle" letter-spacing="0">主张驱动 · 有边界智能 · 可审计复现</text>
+<line x1="1200" y1="238" x2="1200" y2="255" stroke="#8fa6b1" stroke-width="1.8"/>
+<line x1="325" y1="255" x2="2075" y2="255" stroke="#8fa6b1" stroke-width="1.8"/>
+<line x1="325" y1="255" x2="325" y2="286" stroke="#8fa6b1" stroke-width="1.8"/>
+<line x1="905" y1="255" x2="905" y2="286" stroke="#8fa6b1" stroke-width="1.8"/>
+<line x1="1485" y1="255" x2="1485" y2="286" stroke="#8fa6b1" stroke-width="1.8"/>
+<line x1="2075" y1="255" x2="2075" y2="286" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="50" y="286" width="550" height="64" rx="14" fill="#ffffff" stroke="#d8e5ea" stroke-width="1.4" filter="url(#shadow)"/>
+<rect x="50" y="286" width="6" height="64" rx="3" fill="#0f766e"/>
+<text x="74" y="313" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="16" font-weight="800" fill="#0f766e" text-anchor="start" letter-spacing="0">交互与治理层</text>
+<text x="74" y="335" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="11" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">输入、人工门禁、预算与状态</text>
+<rect x="630" y="286" width="550" height="64" rx="14" fill="#ffffff" stroke="#d8e5ea" stroke-width="1.4" filter="url(#shadow)"/>
+<rect x="630" y="286" width="6" height="64" rx="3" fill="#2563eb"/>
+<text x="654" y="313" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="16" font-weight="800" fill="#2563eb" text-anchor="start" letter-spacing="0">智能与工具层</text>
+<text x="654" y="335" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="11" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">理解、规划、诊断、实现与补丁</text>
+<rect x="1210" y="286" width="550" height="64" rx="14" fill="#ffffff" stroke="#d8e5ea" stroke-width="1.4" filter="url(#shadow)"/>
+<rect x="1210" y="286" width="6" height="64" rx="3" fill="#b45309"/>
+<text x="1234" y="313" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="16" font-weight="800" fill="#b45309" text-anchor="start" letter-spacing="0">执行与算力层</text>
+<text x="1234" y="335" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="11" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">隔离执行、远程主机与租赁平台</text>
+<rect x="1790" y="286" width="570" height="64" rx="14" fill="#ffffff" stroke="#d8e5ea" stroke-width="1.4" filter="url(#shadow)"/>
+<rect x="1790" y="286" width="6" height="64" rx="3" fill="#15803d"/>
+<text x="1814" y="313" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="16" font-weight="800" fill="#15803d" text-anchor="start" letter-spacing="0">证据与核验层</text>
+<text x="1814" y="335" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="11" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">持久化、规则核验与交付</text>
+<line x1="68" y1="350" x2="68" y2="747" stroke="#8fa6b1" stroke-width="1.8"/>
+<line x1="68" y1="397" x2="92" y2="397" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="92" y="368" width="494" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="92" y="368" width="5" height="58" rx="2.5" fill="#0f766e"/>
+<text x="112" y="392" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">材料导入</text>
+<text x="112" y="412" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">论文 / 代码仓库 / 公开数据 / 许可证</text>
+<line x1="68" y1="467" x2="92" y2="467" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="92" y="438" width="494" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="92" y="438" width="5" height="58" rx="2.5" fill="#0f766e"/>
+<text x="112" y="462" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">用户确认</text>
+<text x="112" y="482" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">Claim 选择 · Plan 确认 · Patch 审批</text>
+<line x1="68" y1="537" x2="92" y2="537" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="92" y="508" width="494" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="92" y="508" width="5" height="58" rx="2.5" fill="#0f766e"/>
+<text x="112" y="532" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">预算与停止</text>
+<text x="112" y="552" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">最大运行数 · 超时 · 最大补丁数 · 手动停止</text>
+<line x1="68" y1="607" x2="92" y2="607" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="92" y="578" width="494" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="92" y="578" width="5" height="58" rx="2.5" fill="#0f766e"/>
+<text x="112" y="602" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">入口</text>
+<text x="112" y="622" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">CLI · 可选 HTTP API · Go 接口</text>
+<line x1="68" y1="677" x2="92" y2="677" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="92" y="648" width="494" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="92" y="648" width="5" height="58" rx="2.5" fill="#0f766e"/>
+<text x="112" y="672" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">状态治理</text>
+<text x="112" y="692" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">确定性转移 · 可恢复执行 · 结构化事件</text>
+<line x1="68" y1="747" x2="92" y2="747" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="92" y="718" width="494" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="92" y="718" width="5" height="58" rx="2.5" fill="#0f766e"/>
+<text x="112" y="742" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">安全边界</text>
+<text x="112" y="762" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">工作区隔离 · 路径限制 · 补丁回滚</text>
+<line x1="648" y1="350" x2="648" y2="747" stroke="#8fa6b1" stroke-width="1.8"/>
+<line x1="648" y1="397" x2="672" y2="397" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="672" y="368" width="494" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="672" y="368" width="5" height="58" rx="2.5" fill="#2563eb"/>
+<text x="692" y="392" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">论文 / 仓库解析</text>
+<text x="692" y="412" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">PDF / DOCX / Markdown · README · 配置文件</text>
+<line x1="648" y1="467" x2="672" y2="467" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="672" y="438" width="494" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="672" y="438" width="5" height="58" rx="2.5" fill="#2563eb"/>
+<text x="692" y="462" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">Claim 抽取</text>
+<text x="692" y="482" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">数值指标 · 来源行号 · 去重 · 用户选择</text>
+<line x1="648" y1="537" x2="672" y2="537" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="672" y="508" width="494" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="672" y="508" width="5" height="58" rx="2.5" fill="#2563eb"/>
+<text x="692" y="532" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">计划生成</text>
+<text x="692" y="552" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">主张 → 数据 → 脚本 → 参数 → 指标</text>
+<line x1="648" y1="607" x2="672" y2="607" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="672" y="578" width="494" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="672" y="578" width="5" height="58" rx="2.5" fill="#2563eb"/>
+<text x="692" y="602" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">故障诊断</text>
+<text x="692" y="622" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">依赖 / 路径 / Seed / 语法 / 超时 / 未知</text>
+<line x1="648" y1="677" x2="672" y2="677" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="672" y="648" width="494" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="672" y="648" width="5" height="58" rx="2.5" fill="#2563eb"/>
+<text x="692" y="672" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">CodeAgent</text>
+<text x="692" y="692" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">Codex / Claude / Gemini · 隔离副本 · 返回 diff</text>
+<line x1="648" y1="747" x2="672" y2="747" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="672" y="718" width="494" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="672" y="718" width="5" height="58" rx="2.5" fill="#2563eb"/>
+<text x="692" y="742" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">PatchManager</text>
+<text x="692" y="762" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">路径校验 · 新增文件 · 备份 / 回滚</text>
+<line x1="1228" y1="350" x2="1228" y2="747" stroke="#8fa6b1" stroke-width="1.8"/>
+<line x1="1228" y1="397" x2="1252" y2="397" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="1252" y="368" width="494" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="1252" y="368" width="5" height="58" rx="2.5" fill="#b45309"/>
+<text x="1272" y="392" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">Runner 接口</text>
+<text x="1272" y="412" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">统一 Execute 抽象 · 可替换执行器</text>
+<line x1="1228" y1="467" x2="1252" y2="467" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="1252" y="438" width="494" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="1252" y="438" width="5" height="58" rx="2.5" fill="#b45309"/>
+<text x="1272" y="462" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">本地 / Docker</text>
+<text x="1272" y="482" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">演示 / 隔离 · CPU、内存、PID 限制</text>
+<line x1="1228" y1="537" x2="1252" y2="537" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="1252" y="508" width="494" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="1252" y="508" width="5" height="58" rx="2.5" fill="#b45309"/>
+<text x="1272" y="532" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">SSH 远程主机</text>
+<text x="1272" y="552" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">scp 上传 · 远程脚本 · 日志回传</text>
+<line x1="1228" y1="607" x2="1252" y2="607" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="1252" y="578" width="494" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="1252" y="578" width="5" height="58" rx="2.5" fill="#b45309"/>
+<text x="1272" y="602" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">Colab 类平台</text>
+<text x="1272" y="622" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">自动选卡 · 上传 · 提交 · 轮询</text>
+<line x1="1228" y1="677" x2="1252" y2="677" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="1252" y="648" width="494" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="1252" y="648" width="5" height="58" rx="2.5" fill="#b45309"/>
+<text x="1272" y="672" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">GPU / 资源</text>
+<text x="1272" y="692" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">CUDA_VISIBLE_DEVICES · --gpus all · 超时</text>
+<line x1="1228" y1="747" x2="1252" y2="747" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="1252" y="718" width="494" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="1252" y="718" width="5" height="58" rx="2.5" fill="#b45309"/>
+<text x="1272" y="742" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">执行证据</text>
+<text x="1272" y="762" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">命令 · 退出码 · stdout/stderr · 环境快照</text>
+<line x1="1808" y1="350" x2="1808" y2="747" stroke="#8fa6b1" stroke-width="1.8"/>
+<line x1="1808" y1="397" x2="1832" y2="397" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="1832" y="368" width="514" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="1832" y="368" width="5" height="58" rx="2.5" fill="#15803d"/>
+<text x="1852" y="392" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">SQLite</text>
+<text x="1852" y="412" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">工程聚合 · 状态持久化</text>
+<line x1="1808" y1="467" x2="1832" y2="467" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="1832" y="438" width="514" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="1832" y="438" width="5" height="58" rx="2.5" fill="#15803d"/>
+<text x="1852" y="462" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">事件日志</text>
+<text x="1852" y="482" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">追加式 · 序号 · 可追溯</text>
+<line x1="1808" y1="537" x2="1832" y2="537" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="1832" y="508" width="514" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="1832" y="508" width="5" height="58" rx="2.5" fill="#15803d"/>
+<text x="1852" y="532" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">规则核验</text>
+<text x="1852" y="552" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">PASS / DIFFERENT / INSUFFICIENT / FAILED</text>
+<line x1="1808" y1="607" x2="1832" y2="607" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="1832" y="578" width="514" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="1832" y="578" width="5" height="58" rx="2.5" fill="#15803d"/>
+<text x="1852" y="602" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">证据索引</text>
+<text x="1852" y="622" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">日志 · 产物 · diff · 审批</text>
+<line x1="1808" y1="677" x2="1832" y2="677" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="1832" y="648" width="514" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="1832" y="648" width="5" height="58" rx="2.5" fill="#15803d"/>
+<text x="1852" y="672" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">报告</text>
+<text x="1852" y="692" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">Markdown · manifest.json</text>
+<line x1="1808" y1="747" x2="1832" y2="747" stroke="#8fa6b1" stroke-width="1.8"/>
+<rect x="1832" y="718" width="514" height="58" rx="10" fill="#ffffff" stroke="#dce8ec" stroke-width="1.1" filter="url(#shadow)"/>
+<rect x="1832" y="718" width="5" height="58" rx="2.5" fill="#15803d"/>
+<text x="1852" y="742" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">复现包</text>
+<text x="1852" y="762" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">ZIP · 再次运行命令</text>
+<text x="50" y="870" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="24" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">二、确定性状态机与闭环</text>
+<text x="330" y="870" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="13" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">状态机负责转移、预算、重试、人工确认与停止；模型和代码工具只提出建议。</text>
+<rect x="50" y="900" width="2300" height="740" rx="18" fill="url(#panel)" stroke="#cfe1e6" stroke-width="1.3" filter="url(#shadow)"/>
+<rect x="70" y="960" width="210" height="64" rx="12" fill="#ffffff" stroke="#d4e3e8" stroke-width="1.2" filter="url(#shadow)"/>
+<text x="84" y="983" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">CREATED</text>
+<text x="84" y="1003" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="13" font-weight="800" fill="#0f766e" text-anchor="start" letter-spacing="0">创建</text>
+<text x="144" y="1003" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">工作区 · 预算</text>
+<path d="M 280 992 L 332 992" fill="none" stroke="#8fa6b1" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="340" y="960" width="210" height="64" rx="12" fill="#ffffff" stroke="#d4e3e8" stroke-width="1.2" filter="url(#shadow)"/>
+<text x="354" y="983" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">INIT</text>
+<text x="354" y="1003" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="13" font-weight="800" fill="#0f766e" text-anchor="start" letter-spacing="0">初始化</text>
+<text x="414" y="1003" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">复制仓库 · 建证据目录</text>
+<path d="M 550 992 L 602 992" fill="none" stroke="#8fa6b1" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="610" y="960" width="210" height="64" rx="12" fill="#ffffff" stroke="#d4e3e8" stroke-width="1.2" filter="url(#shadow)"/>
+<text x="624" y="983" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">INGEST</text>
+<text x="624" y="1003" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="13" font-weight="800" fill="#0f766e" text-anchor="start" letter-spacing="0">导入</text>
+<text x="684" y="1003" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">解析论文 / 仓库</text>
+<path d="M 820 992 L 872 992" fill="none" stroke="#8fa6b1" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="880" y="960" width="210" height="64" rx="12" fill="#ffffff" stroke="#d4e3e8" stroke-width="1.2" filter="url(#shadow)"/>
+<text x="894" y="983" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">CLAIMS</text>
+<text x="894" y="1003" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="13" font-weight="800" fill="#0f766e" text-anchor="start" letter-spacing="0">主张</text>
+<text x="954" y="1003" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">抽取 · 去重 · 选择</text>
+<path d="M 1090 992 L 1142 992" fill="none" stroke="#8fa6b1" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="1150" y="960" width="210" height="64" rx="12" fill="#ffffff" stroke="#d4e3e8" stroke-width="1.2" filter="url(#shadow)"/>
+<text x="1164" y="983" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">PLAN</text>
+<text x="1164" y="1003" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="13" font-weight="800" fill="#0f766e" text-anchor="start" letter-spacing="0">计划</text>
+<text x="1224" y="1003" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">主张 → 实验映射</text>
+<path d="M 1360 992 L 1412 992" fill="none" stroke="#8fa6b1" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="1420" y="960" width="210" height="64" rx="12" fill="#ffffff" stroke="#d4e3e8" stroke-width="1.2" filter="url(#shadow)"/>
+<text x="1434" y="983" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">SANDBOX</text>
+<text x="1434" y="1003" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="13" font-weight="800" fill="#0f766e" text-anchor="start" letter-spacing="0">沙箱</text>
+<text x="1494" y="1003" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">Runner · 资源准备</text>
+<path d="M 1630 992 L 1682 992" fill="none" stroke="#8fa6b1" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="1690" y="960" width="210" height="64" rx="12" fill="#ffffff" stroke="#d4e3e8" stroke-width="1.2" filter="url(#shadow)"/>
+<text x="1704" y="983" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">EXECUTE</text>
+<text x="1704" y="1003" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="13" font-weight="800" fill="#0f766e" text-anchor="start" letter-spacing="0">执行</text>
+<text x="1764" y="1003" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">命令 · 日志 · 产物</text>
+<rect x="958" y="968" width="70" height="18" rx="9.0" fill="#fff0dd" stroke="#fff0dd" stroke-width="0"/>
+<text x="993.0" y="980.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="8" font-weight="700" fill="#b45309" text-anchor="middle" letter-spacing="0">人工选择</text>
+<rect x="1228" y="968" width="70" height="18" rx="9.0" fill="#fff0dd" stroke="#fff0dd" stroke-width="0"/>
+<text x="1263.0" y="980.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="8" font-weight="700" fill="#b45309" text-anchor="middle" letter-spacing="0">人工确认</text>
+<rect x="1420" y="1140" width="210" height="64" rx="12" fill="#ffffff" stroke="#cfe6d8" stroke-width="1.2" filter="url(#shadow)"/>
+<text x="1434" y="1163" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="800" fill="#15803d" text-anchor="start" letter-spacing="0">VERIFY</text>
+<text x="1434" y="1183" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="13" font-weight="800" fill="#0f766e" text-anchor="start" letter-spacing="0">核验</text>
+<text x="1494" y="1183" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">Go 规则唯一裁决</text>
+<rect x="1690" y="1140" width="210" height="64" rx="12" fill="#ffffff" stroke="#cfe6d8" stroke-width="1.2" filter="url(#shadow)"/>
+<text x="1704" y="1163" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="800" fill="#15803d" text-anchor="start" letter-spacing="0">REPORT</text>
+<text x="1704" y="1183" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="13" font-weight="800" fill="#0f766e" text-anchor="start" letter-spacing="0">报告</text>
+<text x="1764" y="1183" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">Markdown + ZIP</text>
+<rect x="1960" y="1140" width="210" height="64" rx="12" fill="#ffffff" stroke="#cfe6d8" stroke-width="1.2" filter="url(#shadow)"/>
+<text x="1974" y="1163" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="800" fill="#15803d" text-anchor="start" letter-spacing="0">COMPLETED</text>
+<text x="1974" y="1183" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="13" font-weight="800" fill="#0f766e" text-anchor="start" letter-spacing="0">完成</text>
+<text x="2034" y="1183" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">交付证据</text>
+<path d="M 1795 1024 L 1795 1080 L 1525 1080 L 1525 1140" fill="none" stroke="#15803d" stroke-width="1.8" marker-end="url(#arrowGreen)" stroke-dasharray="6 5"/>
+<text x="1600" y="1072" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#15803d" text-anchor="start" letter-spacing="0">执行成功</text>
+<path d="M 1630 1140 L 1630 1110 L 1700 1110 L 1700 1024" fill="none" stroke="#2563eb" stroke-width="1.6" marker-end="url(#arrowBlue)" stroke-dasharray="5 5"/>
+<text x="1710" y="1104" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="700" fill="#2563eb" text-anchor="start" letter-spacing="0">还有下一个已确认计划</text>
+<path d="M 1630 1204 L 1690 1204" fill="none" stroke="#15803d" stroke-width="1.8" marker-end="url(#arrowGreen)"/>
+<path d="M 1900 1204 L 1960 1204" fill="none" stroke="#15803d" stroke-width="1.8" marker-end="url(#arrowGreen)"/>
+<rect x="1420" y="1320" width="210" height="64" rx="12" fill="#ffffff" stroke="#d4e3e8" stroke-width="1.2" filter="url(#shadow)"/>
+<text x="1434" y="1343" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">DIAGNOSE</text>
+<text x="1434" y="1363" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="13" font-weight="800" fill="#0f766e" text-anchor="start" letter-spacing="0">诊断</text>
+<text x="1494" y="1363" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">分类失败原因</text>
+<rect x="1690" y="1320" width="210" height="64" rx="12" fill="#fff7ed" stroke="#efd3ae" stroke-width="1.2" filter="url(#shadow)"/>
+<text x="1704" y="1343" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="800" fill="#b45309" text-anchor="start" letter-spacing="0">PATCH</text>
+<text x="1704" y="1363" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="13" font-weight="800" fill="#0f766e" text-anchor="start" letter-spacing="0">补丁</text>
+<text x="1764" y="1363" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">最小 diff · 人工审批</text>
+<rect x="1960" y="1320" width="210" height="64" rx="12" fill="#ffffff" stroke="#d4e3e8" stroke-width="1.2" filter="url(#shadow)"/>
+<text x="1974" y="1343" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">RETRY</text>
+<text x="1974" y="1363" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="13" font-weight="800" fill="#0f766e" text-anchor="start" letter-spacing="0">重试</text>
+<text x="2034" y="1363" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">应用补丁后重跑</text>
+<path d="M 1690 1024 L 1690 1080 L 1350 1080 L 1350 1290 L 1525 1290 L 1525 1320" fill="none" stroke="#b45309" stroke-width="1.8" marker-end="url(#arrowAmber)" stroke-dasharray="6 5"/>
+<text x="1360" y="1278" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#b45309" text-anchor="start" letter-spacing="0">执行失败</text>
+<path d="M 1630 1352 L 1690 1352" fill="none" stroke="#b45309" stroke-width="1.8" marker-end="url(#arrowAmber)"/>
+<path d="M 1900 1352 L 1960 1352" fill="none" stroke="#b45309" stroke-width="1.8" marker-end="url(#arrowAmber)"/>
+<path d="M 2170 1352 L 2290 1352 L 2290 1000 L 1900 1000" fill="none" stroke="#b45309" stroke-width="1.8" marker-end="url(#arrowAmber)" stroke-dasharray="6 5"/>
+<text x="2195" y="1190" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="700" fill="#b45309" text-anchor="start" letter-spacing="0">审批通过后重试</text>
+<rect x="1420" y="1480" width="210" height="56" rx="12" fill="#fff5f5" stroke="#e7c1bd" stroke-width="1.2" filter="url(#shadow)"/>
+<text x="1438" y="1503" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="13" font-weight="800" fill="#b42318" text-anchor="start" letter-spacing="0">FAILED 失败</text>
+<text x="1438" y="1522" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">无补丁 / 预算耗尽 / 拒绝补丁</text>
+<rect x="1690" y="1480" width="210" height="56" rx="12" fill="#f6f7f9" stroke="#cfd8de" stroke-width="1.2" filter="url(#shadow)"/>
+<text x="1708" y="1503" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="13" font-weight="800" fill="#52606b" text-anchor="start" letter-spacing="0">STOPPED 停止</text>
+<text x="1708" y="1522" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="500" fill="#667a86" text-anchor="start" letter-spacing="0">用户主动停止 · 保留证据</text>
+<path d="M 1525 1384 L 1525 1480" fill="none" stroke="#b42318" stroke-width="1.6" marker-end="url(#arrowAmber)" stroke-dasharray="5 5"/>
+<path d="M 2170 1384 L 2170 1430 L 1795 1430 L 1795 1480" fill="none" stroke="#8fa6b1" stroke-width="1.4" marker-end="url(#arrow)" stroke-dasharray="5 5"/>
+<text x="1080" y="1508" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="600" fill="#667a86" text-anchor="start" letter-spacing="0">任意非终止状态 + 用户停止 → STOPPED</text>
+<text x="190" y="940" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="700" fill="#667a86" text-anchor="start" letter-spacing="0">启动</text>
+<text x="460" y="940" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="700" fill="#667a86" text-anchor="start" letter-spacing="0">解析完成</text>
+<text x="730" y="940" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="700" fill="#667a86" text-anchor="start" letter-spacing="0">主张就绪</text>
+<text x="1000" y="940" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="700" fill="#667a86" text-anchor="start" letter-spacing="0">计划确认</text>
+<text x="1270" y="940" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="700" fill="#667a86" text-anchor="start" letter-spacing="0">沙箱就绪</text>
+<text x="1540" y="940" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="9" font-weight="700" fill="#667a86" text-anchor="start" letter-spacing="0">开始执行</text>
+<text x="50" y="1680" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="24" font-weight="800" fill="#0b2c3d" text-anchor="start" letter-spacing="0">三、证据链与可切换接口</text>
+<rect x="50" y="1708" width="2300" height="120" rx="18" fill="url(#panel)" stroke="#cfe1e6" stroke-width="1.3" filter="url(#shadow)"/>
+<text x="74" y="1738" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="800" fill="#15803d" text-anchor="start" letter-spacing="0">证据链</text>
+<rect x="160" y="1726" width="120" height="26" rx="13.0" fill="#f4f8f9" stroke="#f4f8f9" stroke-width="0"/>
+<text x="220.0" y="1742.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#102c3c" text-anchor="middle" letter-spacing="0">Claim</text>
+<line x1="280" y1="1739" x2="306" y2="1739" stroke="#8fa6b1" stroke-width="1.5"/>
+<rect x="306" y="1726" width="120" height="26" rx="13.0" fill="#f4f8f9" stroke="#f4f8f9" stroke-width="0"/>
+<text x="366.0" y="1742.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#102c3c" text-anchor="middle" letter-spacing="0">Plan</text>
+<line x1="426" y1="1739" x2="452" y2="1739" stroke="#8fa6b1" stroke-width="1.5"/>
+<rect x="452" y="1726" width="120" height="26" rx="13.0" fill="#f4f8f9" stroke="#f4f8f9" stroke-width="0"/>
+<text x="512.0" y="1742.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#102c3c" text-anchor="middle" letter-spacing="0">Command</text>
+<line x1="572" y1="1739" x2="598" y2="1739" stroke="#8fa6b1" stroke-width="1.5"/>
+<rect x="598" y="1726" width="120" height="26" rx="13.0" fill="#f4f8f9" stroke="#f4f8f9" stroke-width="0"/>
+<text x="658.0" y="1742.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#102c3c" text-anchor="middle" letter-spacing="0">Run</text>
+<line x1="718" y1="1739" x2="744" y2="1739" stroke="#8fa6b1" stroke-width="1.5"/>
+<rect x="744" y="1726" width="120" height="26" rx="13.0" fill="#f4f8f9" stroke="#f4f8f9" stroke-width="0"/>
+<text x="804.0" y="1742.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#102c3c" text-anchor="middle" letter-spacing="0">Logs</text>
+<line x1="864" y1="1739" x2="890" y2="1739" stroke="#8fa6b1" stroke-width="1.5"/>
+<rect x="890" y="1726" width="120" height="26" rx="13.0" fill="#eaf7ef" stroke="#eaf7ef" stroke-width="0"/>
+<text x="950.0" y="1742.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#15803d" text-anchor="middle" letter-spacing="0">Metric</text>
+<line x1="1010" y1="1739" x2="1036" y2="1739" stroke="#8fa6b1" stroke-width="1.5"/>
+<rect x="1036" y="1726" width="120" height="26" rx="13.0" fill="#eaf7ef" stroke="#eaf7ef" stroke-width="0"/>
+<text x="1096.0" y="1742.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#15803d" text-anchor="middle" letter-spacing="0">Verdict</text>
+<line x1="1156" y1="1739" x2="1182" y2="1739" stroke="#8fa6b1" stroke-width="1.5"/>
+<rect x="1182" y="1726" width="120" height="26" rx="13.0" fill="#f4f8f9" stroke="#f4f8f9" stroke-width="0"/>
+<text x="1242.0" y="1742.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#102c3c" text-anchor="middle" letter-spacing="0">Report</text>
+<line x1="1302" y1="1739" x2="1328" y2="1739" stroke="#8fa6b1" stroke-width="1.5"/>
+<rect x="1328" y="1726" width="120" height="26" rx="13.0" fill="#f4f8f9" stroke="#f4f8f9" stroke-width="0"/>
+<text x="1388.0" y="1742.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#102c3c" text-anchor="middle" letter-spacing="0">ZIP</text>
+<text x="74" y="1784" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="800" fill="#2563eb" text-anchor="start" letter-spacing="0">可切换接口</text>
+<rect x="190" y="1772" width="120" height="24" rx="12.0" fill="#eef3ff" stroke="#eef3ff" stroke-width="0"/>
+<text x="250.0" y="1787.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#2563eb" text-anchor="middle" letter-spacing="0">Analyzer</text>
+<rect x="340" y="1772" width="120" height="24" rx="12.0" fill="#eef3ff" stroke="#eef3ff" stroke-width="0"/>
+<text x="400.0" y="1787.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#2563eb" text-anchor="middle" letter-spacing="0">Runner</text>
+<rect x="490" y="1772" width="120" height="24" rx="12.0" fill="#eef3ff" stroke="#eef3ff" stroke-width="0"/>
+<text x="550.0" y="1787.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#2563eb" text-anchor="middle" letter-spacing="0">CodeAgent</text>
+<rect x="640" y="1772" width="120" height="24" rx="12.0" fill="#eef3ff" stroke="#eef3ff" stroke-width="0"/>
+<text x="700.0" y="1787.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#2563eb" text-anchor="middle" letter-spacing="0">Store</text>
+<rect x="790" y="1772" width="120" height="24" rx="12.0" fill="#eef3ff" stroke="#eef3ff" stroke-width="0"/>
+<text x="850.0" y="1787.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#2563eb" text-anchor="middle" letter-spacing="0">LLM</text>
+<rect x="940" y="1772" width="120" height="24" rx="12.0" fill="#eef3ff" stroke="#eef3ff" stroke-width="0"/>
+<text x="1000.0" y="1787.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#2563eb" text-anchor="middle" letter-spacing="0">GPU</text>
+<text x="74" y="1816" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="12" font-weight="800" fill="#b45309" text-anchor="start" letter-spacing="0">验证证据</text>
+<rect x="190" y="1805" width="190" height="24" rx="12.0" fill="#fff7ed" stroke="#fff7ed" stroke-width="0"/>
+<text x="285.0" y="1820.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#b45309" text-anchor="middle" letter-spacing="0">本地 CUDA</text>
+<rect x="410" y="1805" width="190" height="24" rx="12.0" fill="#fff7ed" stroke="#fff7ed" stroke-width="0"/>
+<text x="505.0" y="1820.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#b45309" text-anchor="middle" letter-spacing="0">WSL SSH</text>
+<rect x="630" y="1805" width="190" height="24" rx="12.0" fill="#fff7ed" stroke="#fff7ed" stroke-width="0"/>
+<text x="725.0" y="1820.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#b45309" text-anchor="middle" letter-spacing="0">Colab Mock</text>
+<rect x="850" y="1805" width="190" height="24" rx="12.0" fill="#fff7ed" stroke="#fff7ed" stroke-width="0"/>
+<text x="945.0" y="1820.5" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="10" font-weight="700" fill="#b45309" text-anchor="middle" letter-spacing="0">Grokfast 2024 PASS</text>
+<line x1="50" y1="1860" x2="2350" y2="1860" stroke="#d8e5ea" stroke-width="1"/>
+<text x="50" y="1886" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="11" font-weight="600" fill="#667a86" text-anchor="start" letter-spacing="0">ReproLens · 确定性状态机 · 有边界智能 · 人工审批门禁 · 证据化交付</text>
+<text x="2350" y="1886" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="11" font-weight="600" fill="#8fa6b1" text-anchor="end" letter-spacing="0">详细架构图</text>
 </svg>
