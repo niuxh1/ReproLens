@@ -5,7 +5,7 @@ import AdmZip from 'adm-zip';
 import { randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { mkdir, stat, writeFile } from 'node:fs/promises';
-import { basename, dirname, extname, join } from 'node:path';
+import { basename, dirname, extname, join, relative, resolve, sep } from 'node:path';
 import { OpenAICompatibleAnalyzer } from '../agent/openai.js';
 import { applyRuntimeConfig, RuntimeSettings } from '../runtime.js';
 import type { ConfigPatch } from '../config.js';
@@ -37,6 +37,7 @@ const rejectBody = z.object({ reason: z.string().optional().default('patch rejec
 export async function buildServer(orchestrator: Orchestrator, dataDir: string, settings?: RuntimeSettings): Promise<FastifyInstance> {
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024 });
   await app.register(fastifyStatic, { root: publicRoot, prefix: '/static/', wildcard: false });
+  await app.register(fastifyStatic, { root: join(publicRoot, '..', 'node_modules', 'lucide', 'dist', 'esm'), prefix: '/vendor/lucide/', wildcard: true, decorateReply: false, index: false });
   await app.register(multipart, { limits: { fileSize: 128 * 1024 * 1024, files: 1 } });
 
   app.get('/healthz', async () => ({ status: 'ok', time: new Date().toISOString(), service: 'reprolens' }));
@@ -126,6 +127,24 @@ export async function buildServer(orchestrator: Orchestrator, dataDir: string, s
     return reply.send(createReadStream(project.report.package_path));
   });
 
+
+  app.get<{ Params: { id: string; '*': string } }>('/api/v1/projects/:id/evidence/*', async (request, reply) => {
+    const project = await orchestrator.getProject(request.params.id);
+    const requested = request.params['*'];
+    const root = resolve(project.evidence_dir);
+    const target = resolve(root, requested);
+    const rel = relative(root, target);
+    if (!requested || rel === '..' || rel.startsWith(`..${sep}`) || resolve(target) === root) {
+      return reply.code(400).send({ error: { message: 'invalid evidence path' } });
+    }
+    const info = await stat(target).catch(() => null);
+    if (!info?.isFile()) return reply.code(404).send({ error: { message: 'evidence file not found' } });
+    const extension = extname(target).toLowerCase();
+    const mime = extension === '.png' ? 'image/png' : extension === '.jpg' || extension === '.jpeg' ? 'image/jpeg' : extension === '.webp' ? 'image/webp' : extension === '.json' ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8';
+    reply.header('Cache-Control', 'private, max-age=300');
+    reply.type(mime);
+    return reply.send(createReadStream(target));
+  });
   app.get('/api/v1/options', async () => ({
     runners: ['auto', 'local', 'docker', 'ssh', 'colab', 'platform'],
     code_agents: ['none', 'claude', 'codex', 'gemini', 'command'],

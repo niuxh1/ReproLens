@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildServer } from '../src/httpapi/server.js';
@@ -59,5 +59,22 @@ describe('HTTP API', () => {
       method: 'POST', url: '/api/v1/projects', payload: '{', headers: { 'content-type': 'application/json' },
     });
     expect(malformed.statusCode).toBe(400);
+  });
+});
+describe('project evidence preview', () => {
+  it('serves a contained page image and rejects unsafe paths', async () => {
+    const server = await app();
+    const created = await server.inject({ method: 'POST', url: '/api/v1/demo', payload: {} });
+    const project = created.json() as { id: string };
+    await server.inject({ method: 'POST', url: `/api/v1/projects/${project.id}/start`, payload: {} });
+    await mkdir(join(dirs[0]!, 'projects', project.id, 'evidence', 'paper'), { recursive: true });
+    await writeFile(join(dirs[0]!, 'projects', project.id, 'evidence', 'paper', 'page-001.png'), Buffer.from('fake-page'));
+    const response = await server.inject({ method: 'GET', url: `/api/v1/projects/${project.id}/evidence/paper/page-001.png` });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('image/png');
+    const escaped = await server.inject({ method: 'GET', url: `/api/v1/projects/${project.id}/evidence/..%2Fsecret.txt` });
+    expect([400, 404]).toContain(escaped.statusCode);
+    const missing = await server.inject({ method: 'GET', url: `/api/v1/projects/${project.id}/evidence/missing.png` });
+    expect(missing.statusCode).toBe(404);
   });
 });

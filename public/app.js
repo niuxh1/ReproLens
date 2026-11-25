@@ -1,21 +1,49 @@
+import { icon, mountIcons } from './icons.js';
+
 const state = {
   view: 'overview', projects: [], current: null, options: null, settings: null,
   events: [], stream: null, pollTimer: null, commandIndex: 0, commands: [],
+  filter: 'all', projectTab: 'workflow', settingsTab: 'model', sidebarCollapsed: false,
+  theme: localStorage.getItem('reprolens-theme') || 'light',
 };
+
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const ACTIVE_STATES = new Set(['INITIALIZED', 'INGESTED', 'AWAITING_CLAIMS', 'AWAITING_PLAN', 'SANDBOX_READY', 'EXECUTING', 'AWAITING_PATCH', 'RETRYING', 'VERIFYING', 'REPORTING']);
-const STATE_ORDER = ['CREATED', 'INITIALIZED', 'INGESTED', 'AWAITING_CLAIMS', 'AWAITING_PLAN', 'SANDBOX_READY', 'EXECUTING', 'AWAITING_PATCH', 'RETRYING', 'VERIFYING', 'REPORTING', 'COMPLETED'];
-const STATE_LABELS = { CREATED: '已创建', INITIALIZED: '已初始化', INGESTED: '材料已摄取', AWAITING_CLAIMS: '待选主张', AWAITING_PLAN: '待确认计划', SANDBOX_READY: '沙箱就绪', EXECUTING: '执行中', AWAITING_PATCH: '待审批补丁', RETRYING: '重试中', VERIFYING: '核验中', REPORTING: '生成报告', COMPLETED: '已完成', FAILED: '失败', STOPPED: '已停止' };
+const TERMINAL_STATES = new Set(['COMPLETED', 'FAILED', 'STOPPED']);
+const STATE_LABELS = {
+  CREATED: '已创建', INITIALIZED: '已初始化', INGESTED: '材料已摄取', AWAITING_CLAIMS: '待选择主张',
+  AWAITING_PLAN: '待确认计划', SANDBOX_READY: '执行环境就绪', EXECUTING: '实验执行中', AWAITING_PATCH: '待审批补丁',
+  RETRYING: '补丁应用中', VERIFYING: '正在核验', REPORTING: '生成报告', COMPLETED: '已完成', FAILED: '失败', STOPPED: '已停止',
+};
+const STAGE_MAP = {
+  CREATED: 0, INITIALIZED: 0, INGESTED: 0,
+  AWAITING_CLAIMS: 1, AWAITING_PLAN: 2, SANDBOX_READY: 3,
+  EXECUTING: 3, AWAITING_PATCH: 3, RETRYING: 3, VERIFYING: 4,
+  REPORTING: 5, COMPLETED: 5, FAILED: 5, STOPPED: 5,
+};
+const STAGES = ['材料摄取', '主张选择', '计划确认', '受控执行', '规则核验', '证据交付'];
+const RUNNER_LABELS = { auto: '自动选择', local: '本机运行', docker: 'Docker', ssh: 'SSH 主机', colab: '算力平台', platform: '通用平台' };
+const CODE_AGENT_LABELS = { none: '关闭', codex: 'Codex CLI', claude: 'Claude Code', gemini: 'Gemini CLI', command: '自定义命令' };
+const VIEWS = ['overview', 'projects', 'new-run', 'project', 'settings', 'docs'];
 
 document.addEventListener('DOMContentLoaded', () => { void boot(); });
-window.addEventListener('hashchange', () => { const view = location.hash.slice(1); if (['overview', 'new-run', 'projects', 'settings', 'docs'].includes(view)) setView(view); });
+window.addEventListener('hashchange', () => {
+  const view = location.hash.slice(1);
+  if (VIEWS.includes(view) && view !== state.view && view !== 'project') setView(view);
+});
+
 async function boot() {
+  applyTheme(state.theme);
   bindGlobalEvents();
+  mountIcons();
   await Promise.allSettled([checkHealth(), loadOptions(), loadSettings(), loadProjects()]);
   const initialView = location.hash.slice(1);
-  if (['overview', 'new-run', 'projects', 'settings', 'docs'].includes(initialView)) setView(initialView);
-  if (state.projects.length) { const first = state.projects[0]; if (first.state !== 'CREATED' && !initialView) await openProject(first.id, false); }
+  if (VIEWS.includes(initialView) && initialView !== 'project') setView(initialView);
+  if (state.projects.length && !initialView) {
+    const active = state.projects.find((project) => !TERMINAL_STATES.has(project.state)) ?? state.projects[0];
+    if (active && active.state !== 'CREATED') await openProject(active.id, false);
+  }
 }
 
 function bindGlobalEvents() {
@@ -24,9 +52,26 @@ function bindGlobalEvents() {
     if (viewButton) { event.preventDefault(); setView(viewButton.dataset.view); return; }
     const actionButton = event.target.closest('[data-action]');
     if (actionButton) { event.preventDefault(); handleGlobalAction(actionButton.dataset.action); return; }
-    if (event.target.closest('[data-close-command]')) closeCommandPalette();
+    const projectButton = event.target.closest('[data-open-project]');
+    if (projectButton) { event.preventDefault(); void openProject(projectButton.dataset.openProject); return; }
+    const tabButton = event.target.closest('[data-project-tab]');
+    if (tabButton) { event.preventDefault(); setProjectTab(tabButton.dataset.projectTab); return; }
+    const settingsTab = event.target.closest('[data-settings-tab]');
+    if (settingsTab) { event.preventDefault(); setSettingsTab(settingsTab.dataset.settingsTab); return; }
+    const filterButton = event.target.closest('[data-filter]');
+    if (filterButton) { state.filter = filterButton.dataset.filter; renderProjects(); return; }
+    const pageButton = event.target.closest('[data-preview-page]');
+    if (pageButton) { event.preventDefault(); previewPage(Number(pageButton.dataset.previewPage)); return; }
+    const logButton = event.target.closest('[data-preview-log]');
+    if (logButton) { event.preventDefault(); previewLog(logButton.dataset.previewLog); return; }
+    if (event.target.closest('[data-close-mobile-nav]')) closeMobileNav();
   });
   $('#refresh-button').addEventListener('click', () => void refreshAll());
+  $('#theme-toggle').addEventListener('click', toggleTheme);
+  $('#sidebar-collapse').addEventListener('click', toggleSidebar);
+  $('#mobile-menu').addEventListener('click', openMobileNav);
+  $('#mobile-scrim').addEventListener('click', closeMobileNav);
+  $('#load-demo').addEventListener('click', () => void runDemo());
   $('#command-trigger').addEventListener('click', openCommandPalette);
   $('#command-input').addEventListener('input', renderCommandResults);
   $('#command-input').addEventListener('keydown', handleCommandKey);
@@ -35,18 +80,27 @@ function bindGlobalEvents() {
   $('#repo-file').addEventListener('change', () => void uploadRepo());
   $('#paper-path').addEventListener('input', refreshNewRunChecks);
   $('#repo-path').addEventListener('input', refreshNewRunChecks);
-  $('#runner-select').addEventListener('change', refreshRunnerFields);
+  $('#project-name-input').addEventListener('input', refreshNewRunChecks);
+  $$('input[name="runner-choice"]').forEach((input) => input.addEventListener('change', refreshRunnerFields));
+  $('#enable-gpu').addEventListener('change', refreshNewRunChecks);
+  $('#code-agent-enabled').addEventListener('change', () => { $('#code-agent-fields').hidden = !$('#code-agent-enabled').checked; refreshNewRunChecks(); });
   $('#code-agent-select').addEventListener('change', refreshCodeAgentFields);
+  ['#max-runs', '#max-seconds', '#max-patches'].forEach((selector) => $(selector).addEventListener('input', refreshNewRunChecks));
   $('#new-run-form').addEventListener('submit', (event) => { event.preventDefault(); void createProject(); });
   $('#select-claims-button').addEventListener('click', () => void selectClaims());
   $('#approve-patch-button').addEventListener('click', () => void projectAction('approve'));
   $('#reject-patch-button').addEventListener('click', () => void projectAction('reject'));
+  $('#copy-diff-button').addEventListener('click', copyDiff);
   $('#save-settings-button').addEventListener('click', () => void saveSettings());
   $('#test-llm-button').addEventListener('click', () => void testLLM());
   $('#settings-llm-preset').addEventListener('change', applyModelPreset);
+  $('#settings-runner').addEventListener('change', () => setSettingsTab('compute'));
+  $('#close-preview').addEventListener('click', closePreview);
+  $('#preview-dialog').addEventListener('click', (event) => { if (event.target === $('#preview-dialog')) closePreview(); });
+  $('#command-dialog').addEventListener('click', (event) => { if (event.target === $('#command-dialog')) closeCommandPalette(); });
   document.addEventListener('keydown', (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); openCommandPalette(); }
-    if (event.key === 'Escape') closeCommandPalette();
+    if (event.key === 'Escape') { if ($('#command-dialog').open) closeCommandPalette(); if ($('#preview-dialog').open) closePreview(); }
   });
   $$('#paper-drop, #repo-drop').forEach((zone) => {
     zone.addEventListener('dragover', (event) => { event.preventDefault(); zone.classList.add('dragging'); });
@@ -60,51 +114,98 @@ function bindGlobalEvents() {
       }
     });
   });
+  $$('.docs-nav a').forEach((link) => link.addEventListener('click', () => {
+    $$('.docs-nav a').forEach((item) => item.classList.remove('active'));
+    link.classList.add('active');
+  }));
+  refreshRunnerFields();
+  refreshCodeAgentFields();
+  refreshNewRunChecks();
 }
 
 function setView(view) {
+  if (view === 'project' && !state.current) view = 'projects';
   state.view = view;
-  $$('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
+  $$('.nav-link').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
   $$('[data-view-panel]').forEach((panel) => panel.classList.toggle('active', panel.dataset.viewPanel === view));
-  $('#crumb-current').textContent = { overview: '总览', 'new-run': '新建复现', projects: '项目', project: '项目详情', settings: '运行时设置', docs: '接口与扩展' }[view] || view;
+  $('#crumb-current').textContent = { overview: '科研工作台', projects: '复现项目', 'new-run': '新建复现', project: state.current?.name || '项目详情', settings: '模型与算力', docs: '指南与接口' }[view] || view;
   if (view === 'overview') renderOverview();
   if (view === 'projects') renderProjects();
-  if (view === 'new-run') refreshNewRunChecks();
   if (view === 'settings') fillSettingsForm();
-  if (location.hash !== '#' + view) history.replaceState(null, '', '#' + view);
+  if (location.hash !== `#${view}`) history.replaceState(null, '', `#${view}`);
+  closeMobileNav();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
-function handleGlobalAction(action) { if (action === 'new-run') { setView('new-run'); $('#paper-path').focus(); } }
+
+function handleGlobalAction(action) {
+  if (action === 'new-run') setView('new-run');
+}
+
+function toggleSidebar() {
+  state.sidebarCollapsed = !state.sidebarCollapsed;
+  $('.app-shell').classList.toggle('nav-collapsed', state.sidebarCollapsed);
+  localStorage.setItem('reprolens-sidebar', state.sidebarCollapsed ? 'collapsed' : 'open');
+}
+
+function openMobileNav() { $('.app-shell').classList.add('mobile-nav-open'); $('#mobile-scrim').hidden = false; }
+function closeMobileNav() { $('.app-shell').classList.remove('mobile-nav-open'); $('#mobile-scrim').hidden = true; }
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  $('#theme-toggle').innerHTML = icon(theme === 'dark' ? 'sun' : 'moon');
+}
+function toggleTheme() {
+  state.theme = state.theme === 'dark' ? 'light' : 'dark';
+  localStorage.setItem('reprolens-theme', state.theme);
+  applyTheme(state.theme);
+}
 
 async function checkHealth() {
-  try { const health = await api('/healthz'); setHealth(true, health.service || 'reprolens'); }
+  try { const health = await api('/healthz'); setHealth(true, health.service); }
   catch { setHealth(false, 'offline'); }
 }
 function setHealth(ok, label) {
-  $$('.health-dot').forEach((dot) => { dot.classList.toggle('ok', ok); dot.classList.toggle('bad', !ok); });
+  $('#health-dot').classList.toggle('ok', ok);
   $('#health-label').textContent = ok ? '服务在线' : '服务离线';
-  $('#health-pill').textContent = ok ? 'OK' : 'ERR';
-  $('#connection-text').textContent = ok ? '本地 API' : '连接失败';
-  $('#workspace-status').textContent = ok ? 'SQLite · 本地 Agent' : '等待服务';
 }
 
 async function loadOptions() {
   try {
     state.options = await api('/api/v1/options');
     $('#settings-llm-preset').innerHTML = '<option value="">选择预设…</option>' + state.options.model_presets.map((item, index) => `<option value="${index}">${escapeHtml(item.label)}</option>`).join('');
-  } catch (error) { toast(`读取选项失败：${error.message}`, 'error'); }
+  } catch (error) { toast(`无法读取系统选项：${error.message}`, 'error'); }
 }
 async function loadSettings() {
   try { state.settings = await api('/api/v1/settings'); fillSettingsForm(); renderRuntimeConfig(); }
   catch { state.settings = null; renderRuntimeConfig(); }
 }
 async function loadProjects() {
-  try { state.projects = await api('/api/v1/projects'); renderOverview(); renderProjects(); $('#project-count').textContent = String(state.projects.length); }
-  catch (error) { toast(`读取项目失败：${error.message}`, 'error'); }
+  try {
+    state.projects = await api('/api/v1/projects');
+    $('#project-count').textContent = String(state.projects.length);
+    renderOverview(); renderProjects();
+  } catch (error) { toast(`无法读取项目：${error.message}`, 'error'); }
 }
 async function refreshAll() {
   await Promise.allSettled([checkHealth(), loadProjects(), loadSettings()]);
   if (state.current) await openProject(state.current.id, false);
-  toast('已刷新工作区');
+  toast('工作区已刷新', 'ok');
+}
+
+async function runDemo() {
+  const button = $('#load-demo');
+  button.disabled = true;
+  try {
+    const project = await api('/api/v1/demo', { method: 'POST', body: JSON.stringify({}) });
+    state.current = await api(`/api/v1/projects/${project.id}/start`, { method: 'POST', body: JSON.stringify({}) });
+    await loadProjects();
+    setView('project');
+    renderProject();
+    subscribeProjectEvents(project.id);
+    startProjectPolling();
+    toast('演示项目已创建，材料摄取完成', 'ok');
+  } catch (error) { toast(error.message, 'error'); }
+  finally { button.disabled = false; }
 }
 
 async function openProject(id, announce = true) {
@@ -112,154 +213,309 @@ async function openProject(id, announce = true) {
     if (state.stream) { state.stream.close(); state.stream = null; }
     state.current = await api(`/api/v1/projects/${id}`);
     state.events = await api(`/api/v1/projects/${id}/events`);
-    setView('project'); renderProject(); subscribeProjectEvents(id); startProjectPolling();
-    if (announce) toast(`已打开 ${state.current.name}`);
-  } catch (error) { toast(`打开项目失败：${error.message}`, 'error'); }
+    state.projectTab = 'workflow';
+    setView('project');
+    renderProject();
+    subscribeProjectEvents(id);
+    startProjectPolling();
+    if (announce) toast(`已打开「${state.current.name}」`);
+  } catch (error) { toast(`无法打开项目：${error.message}`, 'error'); }
 }
 
 function renderOverview() {
+  const active = state.projects.filter((project) => !TERMINAL_STATES.has(project.state)).length;
   const verdicts = state.projects.filter((project) => project.verification).length;
-  const gpuRuns = state.projects.reduce((sum, project) => sum + (project.runs || []).filter((run) => run.gpu).length, 0);
-  const packages = state.projects.filter((project) => project.report?.package_path).length;
+  const runs = state.projects.reduce((sum, project) => sum + (project.runs?.length ?? 0), 0);
   $('#metric-projects').textContent = String(state.projects.length);
+  $('#metric-active').textContent = String(active);
   $('#metric-verdicts').textContent = String(verdicts);
-  $('#metric-gpu').textContent = String(gpuRuns);
-  $('#metric-packages').textContent = String(packages);
-  $('#overview-projects').innerHTML = state.projects.length ? state.projects.slice(0, 6).map(projectCard).join('') : '<div class="empty-panel">还没有项目。点击“新建复现”开始。</div>';
+  $('#metric-runs').textContent = String(runs);
+  const featured = state.projects.find((project) => !TERMINAL_STATES.has(project.state)) ?? state.projects[0];
+  $('#featured-project').innerHTML = featured ? featuredProject(featured) : emptyFeatured();
+  $('#overview-projects').innerHTML = state.projects.length
+    ? state.projects.slice(0, 5).map(projectRow).join('')
+    : emptyProjects('工作区还没有复现项目', '运行内置演示，或从一份论文开始。');
   renderRuntimeConfig();
 }
-function projectCard(project) {
-  const verdict = project.verification?.verdict || '—';
-  return `<button class="project-card" data-open-project="${escapeAttr(project.id)}" type="button">
-    <div class="project-card-top"><span class="status-pill ${stateClass(project.state)}">${STATE_LABELS[project.state] || project.state}</span><span class="status-pill ${verdict === 'PASS' ? 'success' : verdict === 'DIFFERENT' ? 'warning' : verdict === 'FAILED' ? 'danger' : 'neutral'}">${escapeHtml(verdict)}</span></div>
-    <div class="project-card-name">${escapeHtml(project.name)}</div><div class="project-card-path">${escapeHtml(project.paper_path || '—')}</div>
-    <div class="project-card-foot"><span>${project.runs?.length || 0} runs</span><span>${project.paper?.pages?.length || 0} pages</span><span>${project.patch ? 'patch' : 'no patch'}</span></div>
+
+function featuredProject(project) {
+  const stage = STAGE_MAP[project.state] ?? 0;
+  const progress = Math.round(((stage + (project.state === 'COMPLETED' ? 1 : 0)) / STAGES.length) * 100);
+  const verdict = project.verification?.verdict;
+  return `<div class="featured">
+    <div class="featured-main">
+      <div class="featured-kicker">${statusBadge(project.state)}<span class="project-id mono">${escapeHtml(project.id)}</span></div>
+      <h3>${escapeHtml(project.name)}</h3>
+      <p>${escapeHtml(project.paper?.title || '等待论文材料摄取')}</p>
+      <div class="featured-path"><span data-icon="file"></span><span>${escapeHtml(project.paper_path || '未指定论文')}</span></div>
+      <div class="featured-progress"><div class="progress-rail"><span style="width:${progress}%"></span></div><small>${Math.max(0, stage)} / 5 阶段 · ${STATE_LABELS[project.state] || project.state}</small></div>
+      <div class="featured-actions"><button class="button primary small" data-open-project="${escapeAttr(project.id)}" type="button">打开工作区<span data-icon="arrow"></span></button>${project.state === 'AWAITING_PATCH' ? '<button class="button secondary small" data-open-project="' + escapeAttr(project.id) + '" type="button">审批补丁</button>' : ''}</div>
+    </div>
+    <div class="featured-side">
+      <div class="featured-metric"><span>实验主张</span><strong>${project.claims?.length ?? 0}</strong></div>
+      <div class="featured-metric"><span>运行次数</span><strong>${project.runs?.length ?? 0}</strong></div>
+      <div class="featured-metric"><span>核验结论</span><strong style="font-size:14px;color:${verdict ? 'var(--success)' : 'var(--ink-muted)'}">${verdict ?? '待核验'}</strong></div>
+    </div>
+  </div>`;
+}
+
+function emptyFeatured() {
+  return `<div class="featured"><div class="featured-main"><div class="featured-kicker"><span class="status-badge">开始研究</span></div><h3>从一份论文开始复现</h3><p>上传原始 PDF 和代码仓库，ReproLens 将把论文中的可测主张转化为受控实验，并生成可审查的证据。</p><div class="featured-actions"><button class="button primary small" data-action="new-run" type="button"><span data-icon="plus"></span>新建复现</button><button class="button secondary small" id="featured-demo" type="button"><span data-icon="play"></span>运行演示</button></div></div><div class="featured-side"><div class="featured-metric"><span>工作方式</span><strong style="font-size:13px">证据驱动</strong></div><div class="featured-metric"><span>人工确认</span><strong style="font-size:13px">补丁审批</strong></div><div class="featured-metric"><span>交付</span><strong style="font-size:13px">报告 + ZIP</strong></div></div></div>`;
+}
+
+function projectRow(project) {
+  return `<button class="project-row" data-open-project="${escapeAttr(project.id)}" type="button">
+    <div class="project-row-title"><span class="project-symbol"><span data-icon="file"></span></span><span class="project-name-block"><strong>${escapeHtml(project.name)}</strong><small>${escapeHtml(project.paper?.title || project.paper_path || project.id)}</small></span></div>
+    <div><span class="row-label">状态</span>${statusBadge(project.state)}</div>
+    <div><span class="row-label">实验运行</span><span class="row-value">${project.runs?.length ?? 0} runs</span></div>
+    <div><span class="row-label">核验结论</span><span class="row-value">${project.verification?.verdict ?? '—'}</span></div>
+    <span class="row-arrow" aria-hidden="true"><span data-icon="chevron"></span></span>
   </button>`;
 }
+
+function emptyProjects(title, text) {
+  return `<div class="empty-state"><div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(text)}</span></div></div>`;
+}
+
 function renderProjects() {
   const filter = ($('#project-filter')?.value || '').toLowerCase().trim();
-  const projects = state.projects.filter((project) => !filter || `${project.name} ${project.state} ${project.paper?.title || ''}`.toLowerCase().includes(filter));
+  let projects = state.projects.filter((project) => {
+    if (state.filter === 'active' && TERMINAL_STATES.has(project.state)) return false;
+    if (state.filter === 'completed' && project.state !== 'COMPLETED') return false;
+    if (state.filter === 'failed' && !['FAILED', 'STOPPED'].includes(project.state)) return false;
+    return !filter || `${project.name} ${project.state} ${STATE_LABELS[project.state]} ${project.paper?.title || ''}`.toLowerCase().includes(filter);
+  });
   $('#project-filter-count').textContent = `${projects.length} 个项目`;
-  $('#project-list').innerHTML = projects.length ? projects.map((project) => `<button class="project-row" data-open-project="${escapeAttr(project.id)}" type="button">
-    <div><div class="project-row-title">${escapeHtml(project.name)}</div><div class="project-row-sub">${escapeHtml(project.paper_path || project.id)}</div></div>
-    <div class="project-row-meta"><strong>${STATE_LABELS[project.state] || project.state}</strong>${project.claims?.length || 0} claims</div>
-    <div class="project-row-meta"><strong>${project.runs?.length || 0} runs</strong>${project.patch ? 'patch proposed' : 'no patch'}</div>
-    <div class="project-row-meta"><strong>${project.verification?.verdict || '—'}</strong>verdict</div>
-  </button>`).join('') : '<div class="empty-panel">没有匹配的项目。</div>';
+  $$('#project-status-filters button').forEach((button) => button.classList.toggle('active', button.dataset.filter === state.filter));
+  $('#project-list').innerHTML = projects.length ? projects.map(projectRow).join('') : emptyProjects('没有匹配的项目', '尝试调整筛选条件，或创建新的复现实验。');
+  if (!$('#overview-projects').children.length) {
+    $('#overview-projects').innerHTML = state.projects.length ? state.projects.slice(0, 5).map(projectRow).join('') : emptyProjects('工作区还没有复现项目', '运行内置演示，或从一份论文开始。');
+  }
 }
+
 function renderRuntimeConfig() {
   const settings = state.settings;
-  if (!settings) { $('#runtime-config').innerHTML = '<div class="empty-panel">设置 API 不可用。</div>'; return; }
-  const rows = [['模型', settings.llm?.model || '未配置'], ['Base URL', settings.llm?.baseURL || '未配置'], ['执行器', settings.runner], ['GPU', settings.enableGPU ? '启用' : '关闭'], ['CodeAgent', settings.codeAgent?.type || 'none'], ['多模态', settings.llm?.vision ? '启用' : '关闭']];
-  $('#runtime-config').innerHTML = rows.map(([key, value]) => `<div class="config-row"><span>${key}</span><strong>${escapeHtml(String(value))}</strong></div>`).join('');
-  $('#runtime-runner').textContent = settings.runner;
+  if (!settings) { $('#runtime-config').innerHTML = '<div class="empty-state compact">运行时设置暂不可用。</div>'; return; }
+  const rows = [
+    ['论文理解模型', settings.llm?.model || '未配置'],
+    ['模型接口', settings.llm?.baseURL || '未配置'],
+    ['执行器', RUNNER_LABELS[settings.runner] || settings.runner],
+    ['GPU 加速', settings.enableGPU ? '已启用' : '关闭'],
+    ['代码 Agent', CODE_AGENT_LABELS[settings.codeAgent?.type] || '关闭'],
+  ];
+  $('#runtime-config').innerHTML = rows.map(([key, value]) => `<div class="runtime-line"><span>${key}</span><strong>${escapeHtml(String(value))}</strong></div>`).join('');
+}
+
+function statusBadge(stateName) {
+  const tone = stateName === 'COMPLETED' ? 'success' : ['FAILED', 'STOPPED'].includes(stateName) ? 'danger' : ['AWAITING_CLAIMS', 'AWAITING_PLAN', 'AWAITING_PATCH'].includes(stateName) ? 'warning' : ACTIVE_STATES.has(stateName) ? 'neutral' : '';
+  return `<span class="status-badge ${tone}">${STATE_LABELS[stateName] || escapeHtml(stateName)}</span>`;
 }
 
 function renderProject() {
-  const project = state.current; if (!project) return;
+  const project = state.current;
+  if (!project) return;
+  mountIcons();
   $('#project-detail-name').textContent = project.name;
-  $('#project-detail-meta').textContent = `${project.id} · ${project.paper?.title || '未摄取论文'} · ${project.paper?.sha256 ? 'sha256:' + project.paper.sha256.slice(0, 12) : 'no sha'}`;
+  $('#project-detail-meta').textContent = `${project.id} · ${project.paper?.sha256 ? 'sha256:' + project.paper.sha256.slice(0, 16) : '等待材料摄取'}`;
   $('#project-eyebrow').textContent = project.id;
-  renderProjectActions(project); renderStateStrip(project); renderClaims(project); renderPlans(project); renderRuns(project);
-  renderPatch(project); renderVerification(project); renderDeliverables(project); renderSourceIndex(project); renderEvents();
+  const badge = $('#project-state-badge');
+  badge.textContent = STATE_LABELS[project.state] || project.state;
+  badge.className = `status-badge ${project.state === 'COMPLETED' ? 'success' : ['FAILED', 'STOPPED'].includes(project.state) ? 'danger' : ['AWAITING_CLAIMS', 'AWAITING_PLAN', 'AWAITING_PATCH'].includes(project.state) ? 'warning' : 'neutral'}`;
+  $('#project-stat-claims').textContent = String(project.claims?.length ?? 0);
+  $('#project-stat-runs').textContent = String(project.runs?.length ?? 0);
+  $('#project-stat-verdict').textContent = project.verification?.verdict ?? '—';
+  $('#project-stat-verdict').style.color = project.verification?.verdict === 'PASS' ? 'var(--success)' : project.verification?.verdict && project.verification.verdict !== 'PASS' ? 'var(--danger)' : '';
+  const errorBanner = $('#project-error-banner');
+  if (errorBanner) {
+    errorBanner.hidden = !project.error;
+    const textNode = errorBanner.querySelector('span:last-child');
+    if (textNode) textNode.textContent = project.error || '';
+  }
+  renderProjectActions(project);
+  renderProgress(project);
+  renderClaims(project);
+  renderPlans(project);
+  renderRuns(project);
+  renderPatch(project);
+  renderVerification(project);
+  renderPaperPages(project);
+  renderEvidence(project);
+  renderContext(project);
+  renderEvents();
+  setProjectTab(state.projectTab, false);
 }
+
 function renderProjectActions(project) {
   const actions = [];
-  if (project.state === 'CREATED') actions.push('<button class="button primary" data-project-action="start" type="button">开始摄取</button>');
-  if (project.state === 'AWAITING_PLAN') actions.push('<button class="button primary" data-project-action="confirm" type="button">确认并执行</button>');
-  if (project.state === 'AWAITING_PATCH') actions.push('<button class="button primary" data-project-action="approve" type="button">审批补丁</button>', '<button class="button ghost" data-project-action="reject" type="button">拒绝</button>');
-  if (ACTIVE_STATES.has(project.state)) actions.push('<button class="button ghost" data-project-action="stop" type="button">停止</button>');
-  if (project.report?.markdown) actions.push(`<a class="button" href="/api/v1/projects/${encodeURIComponent(project.id)}/report.md" target="_blank" rel="noreferrer">报告</a>`);
-  if (project.report?.package_path) actions.push(`<a class="button primary" href="/api/v1/projects/${encodeURIComponent(project.id)}/package">下载证据包</a>`);
+  if (project.state === 'CREATED') actions.push('<button class="button primary small" data-project-action="start" type="button"><span data-icon="play"></span>开始材料摄取</button>');
+  if (project.error) actions.push(`<span class="status-badge danger" title="${escapeAttr(project.error)}">需要处理</span>`);
+  if (project.state === 'AWAITING_PLAN') actions.push('<button class="button primary small" data-project-action="confirm" type="button"><span data-icon="play"></span>确认并执行</button>');
+  if (project.state === 'AWAITING_PATCH') actions.push('<button class="button secondary small" data-project-action="approve" type="button"><span data-icon="check"></span>批准补丁</button>', '<button class="button danger small" data-project-action="reject" type="button">拒绝</button>');
+  if (ACTIVE_STATES.has(project.state)) actions.push('<button class="button secondary small" data-project-action="stop" type="button"><span data-icon="pause"></span>停止</button>');
+  if (project.report?.markdown) actions.push('<a class="button secondary small" href="/api/v1/projects/' + encodeURIComponent(project.id) + '/report.md" target="_blank" rel="noreferrer">查看报告</a>');
+  if (project.report?.package_path) actions.push('<a class="button primary small" href="/api/v1/projects/' + encodeURIComponent(project.id) + '/package"><span data-icon="download"></span>证据包</a>');
   $('#project-actions').innerHTML = actions.join('');
   $$('[data-project-action]').forEach((button) => button.addEventListener('click', () => void projectAction(button.dataset.projectAction)));
 }
-function renderStateStrip(project) {
-  const currentIndex = STATE_ORDER.indexOf(project.state);
-  const failed = project.state === 'FAILED' || project.state === 'STOPPED';
-  $('#state-strip').innerHTML = STATE_ORDER.map((stateName, index) => {
-    const done = currentIndex >= index && project.state !== 'CREATED';
-    const current = project.state === stateName || (failed && index === currentIndex);
-    return `<div class="state-step ${done ? 'done' : ''} ${current ? 'current' : ''} ${failed && current ? 'failed' : ''}"><span class="state-dot"></span><span>${STATE_LABELS[stateName]}</span></div>`;
+
+function renderProgress(project) {
+  const current = STAGE_MAP[project.state] ?? 0;
+  const failed = ['FAILED', 'STOPPED'].includes(project.state);
+  $('#state-strip').innerHTML = STAGES.map((stage, index) => {
+    const done = index < current || project.state === 'COMPLETED';
+    const active = index === current && !failed;
+    return `<div class="progress-step ${done ? 'done' : ''} ${active ? 'current' : ''} ${failed && index === current ? 'failed' : ''}"><span class="marker">${done ? '✓' : index + 1}</span><span>${stage}</span></div>`;
   }).join('');
 }
+
 function renderClaims(project) {
-  const claims = project.claims || [];
+  const claims = project.claims ?? [];
   const canSelect = project.state === 'AWAITING_CLAIMS';
   $('#select-claims-button').disabled = !canSelect;
-  $('#claims-list').className = claims.length ? 'stack' : 'stack empty-panel';
-  $('#claims-list').innerHTML = claims.length ? claims.map((claim) => `<label class="claim-item">
+  $('#claims-list').innerHTML = claims.length ? claims.map((claim) => `<label class="claim-row">
     <input type="checkbox" data-claim-id="${escapeAttr(claim.claim_id)}" ${claim.selected ? 'checked' : ''} ${canSelect ? '' : 'disabled'}>
-    <span class="claim-copy"><strong>${escapeHtml(claim.claim_id)} · ${escapeHtml(claim.metric)} = ${claim.expected_value}</strong><p>${escapeHtml(claim.text)}</p><small>${escapeHtml(claim.source?.path || '')}:${claim.source?.line || 0} · tolerance abs ${claim.tolerance?.abs ?? 0}</small></span>
-  </label>`).join('') : '开始摄取后显示论文中的可测主张。';
+    <span class="claim-content"><strong>${escapeHtml(claim.claim_id)} · ${escapeHtml(claim.metric)}</strong><p>${escapeHtml(claim.text)}</p><small>${escapeHtml(claim.source?.path || '')}:${claim.source?.line || 0} · abs tolerance ${claim.tolerance?.abs ?? 0}</small></span>
+    <span class="claim-value"><strong>${formatNumber(claim.expected_value)}</strong><span>expected</span></span>
+  </label>`).join('') : '<div class="empty-state compact">开始材料摄取后显示论文中的可测主张。</div>';
 }
+
 function renderPlans(project) {
-  const plans = project.plans || [];
-  $('#plan-count').textContent = String(plans.length);
-  $('#plans-list').className = plans.length ? 'stack' : 'stack empty-panel';
-  $('#plans-list').innerHTML = plans.length ? plans.map((plan) => `<div class="plan-item"><div class="plan-item-head"><strong>${escapeHtml(plan.claim_id)} · ${escapeHtml(plan.expected_metric)}</strong><span class="status-pill ${plan.confirmed ? 'success' : 'neutral'}">${plan.confirmed ? 'confirmed' : 'draft'}</span></div><code>${escapeHtml(plan.command)}</code><div class="plan-meta"><span>seed ${plan.seed}</span><span>${escapeHtml(plan.image)}</span><span>abs tol ${plan.tolerance?.abs ?? 0}</span><span>${escapeHtml(plan.work_dir)}</span></div></div>`).join('') : '选择 claim 后生成计划。';
+  const plans = project.plans ?? [];
+  $('#plan-count').textContent = `${plans.length} 个计划`;
+  $('#plans-list').innerHTML = plans.length ? plans.map((plan) => `<div class="plan-row">
+    <div class="plan-head"><strong>${escapeHtml(plan.claim_id)} · ${escapeHtml(plan.expected_metric)}</strong>${plan.confirmed ? '<span class="status-badge success">已确认</span>' : '<span class="status-badge">待确认</span>'}</div>
+    <div class="plan-command"><span data-icon="terminal"></span><span>${escapeHtml(plan.command)}</span></div>
+    <div class="plan-meta"><span>seed ${plan.seed}</span><span>${escapeHtml(plan.image)}</span><span>work_dir ${escapeHtml(plan.work_dir)}</span><span>abs tol ${plan.tolerance?.abs ?? 0}</span></div>
+  </div>`).join('') : '<div class="empty-state compact">选择实验主张后生成可审计的实验计划。</div>';
 }
+
 function renderRuns(project) {
-  const runs = project.runs || [];
-  $('#run-count').textContent = String(runs.length);
-  $('#runs-list').className = runs.length ? 'stack' : 'stack empty-panel';
-  $('#runs-list').innerHTML = runs.length ? runs.map((run) => `<div class="run-item"><div class="run-line"><strong>run ${run.attempt} · ${escapeHtml(run.runner)}</strong><span class="status-pill ${run.status === 'succeeded' ? 'success' : run.status === 'timeout' ? 'warning' : 'danger'}">${escapeHtml(run.status)}</span></div><small>exit ${run.exit_code} · ${run.duration_ms} ms${run.gpu ? ' · GPU' : ''}${run.provider ? ' · ' + escapeHtml(run.provider) : ''}${run.offer_id ? ' · ' + escapeHtml(run.offer_id) : ''}</small>${run.failure_class ? `<small>${escapeHtml(run.failure_class)} — ${escapeHtml(run.failure_summary || '')}</small>` : ''}${run.stdout ? `<details><summary>stdout</summary><pre class="code-block">${escapeHtml(run.stdout.slice(0, 4000))}</pre></details>` : ''}</div>`).join('') : '尚未运行。';
+  const runs = project.runs ?? [];
+  $('#run-count').textContent = `${runs.length} 次运行`;
+  $('#runs-tab-count').textContent = String(runs.length);
+  $('#runs-list').innerHTML = runs.length ? runs.map((run) => `<div class="run-row">
+    <div class="run-head"><strong>RUN ${String(run.attempt).padStart(2, '0')} · ${escapeHtml(run.runner)}</strong>${statusBadge(run.status === 'succeeded' ? 'COMPLETED' : run.status === 'timeout' ? 'STOPPED' : 'FAILED')}</div>
+    <div class="run-meta"><span>exit ${run.exit_code}</span><span>${run.duration_ms} ms</span><span>${escapeHtml(run.command)}</span>${run.gpu ? '<span>GPU</span>' : ''}${run.provider ? `<span>${escapeHtml(run.provider)}</span>` : ''}${run.offer_id ? `<span>${escapeHtml(run.offer_id)}</span>` : ''}</div>
+    ${run.failure_class ? `<div class="run-failure">${escapeHtml(run.failure_class)} · ${escapeHtml(run.failure_summary || '')}</div>` : ''}
+    ${run.metric ? `<div class="run-meta"><span>metric ${escapeHtml(run.metric.name)} = ${formatNumber(run.metric.value)}</span></div>` : ''}
+    <div class="run-actions"><button type="button" data-preview-log="${escapeAttr(run.stdout_path || '')}">查看 stdout</button><button type="button" data-preview-log="${escapeAttr(run.stderr_path || '')}">查看 stderr</button></div>
+  </div>`).join('') : '<div class="empty-state compact">尚未开始实验运行。</div>';
 }
+
 function renderPatch(project) {
   const panel = $('#patch-panel');
   if (!project.patch) { panel.hidden = true; return; }
   panel.hidden = false;
   $('#patch-status').textContent = project.patch.status;
-  $('#patch-status').className = `status-pill ${project.patch.status === 'applied' ? 'success' : project.patch.status === 'rejected' ? 'danger' : 'warning'}`;
+  $('#patch-status').className = `status-badge ${project.patch.status === 'applied' ? 'success' : project.patch.status === 'rejected' ? 'danger' : 'warning'}`;
   $('#patch-diagnosis').textContent = `${project.patch.diagnosis.failure_class} · ${project.patch.diagnosis.root_cause}${project.patch.diagnosis.explanation ? ' — ' + project.patch.diagnosis.explanation : ''}`;
   $('#patch-diff').textContent = project.patch.diff || '';
   const actionable = project.state === 'AWAITING_PATCH' && project.patch.status === 'proposed';
-  $('#approve-patch-button').disabled = !actionable; $('#reject-patch-button').disabled = !actionable;
+  $('#approve-patch-button').disabled = !actionable;
+  $('#reject-patch-button').disabled = !actionable;
 }
+
 function renderVerification(project) {
   const panel = $('#verification-panel');
   if (!project.verification) { panel.hidden = true; return; }
   panel.hidden = false;
-  const verdict = project.verification;
-  $('#verdict-pill').textContent = verdict.verdict;
-  $('#verdict-pill').className = `verdict ${verdict.verdict.toLowerCase()}`;
-  $('#verification-body').innerHTML = `<div class="verification-grid"><div><span>expected</span><strong>${formatNumber(verdict.expected)}</strong></div><div><span>observed</span><strong>${formatNumber(verdict.observed)}</strong></div><div><span>tolerance</span><strong>±${formatNumber(verdict.tolerance?.abs ?? 0)}</strong></div></div><div class="rule-line">${escapeHtml(verdict.rule)}${verdict.note ? ' · ' + escapeHtml(verdict.note) : ''}</div>`;
+  const verification = project.verification;
+  $('#verdict-pill').textContent = verification.verdict;
+  $('#verdict-pill').className = `verdict ${verification.verdict.toLowerCase()}`;
+  $('#verification-body').innerHTML = `<div class="verdict-grid">
+    <div><span>论文期望</span><strong>${formatNumber(verification.expected)}</strong></div>
+    <div><span>实验观测</span><strong>${formatNumber(verification.observed)}</strong></div>
+    <div><span>绝对容差</span><strong>±${formatNumber(verification.tolerance?.abs ?? 0)}</strong></div>
+  </div><div class="rule-line">${escapeHtml(verification.rule)}${verification.note ? ' · ' + escapeHtml(verification.note) : ''}</div>`;
 }
-function renderDeliverables(project) {
-  const items = [];
-  if (project.report?.markdown) items.push({ href: `/api/v1/projects/${encodeURIComponent(project.id)}/report.md`, icon: 'MD', title: 'Markdown 报告', note: '规则判决与事件链' });
-  if (project.report?.package_path) items.push({ href: `/api/v1/projects/${encodeURIComponent(project.id)}/package`, icon: 'ZIP', title: '复现证据包', note: '原始 PDF、页面图像、日志与 diff' });
-  if (project.paper?.pages?.length) items.push({ href: '#', icon: 'PDF', title: `${project.paper.pages.length} 页视觉证据`, note: 'PDF 页面渲染已归档', disabled: true });
-  $('#deliverables').innerHTML = items.length ? items.map((item) => `<a class="deliverable ${item.disabled ? 'disabled' : ''}" ${item.disabled ? '' : `href="${item.href}"`} ${item.href !== '#' ? 'target="_blank" rel="noreferrer"' : ''}><span class="deliverable-icon">${item.icon}</span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.note)}</small></span></a>`).join('') : '<div class="empty-panel">完成核验后生成报告与证据包。</div>';
+
+function renderPaperPages(project) {
+  const pages = project.paper?.pages ?? [];
+  $('#paper-tab-count').textContent = String(pages.length);
+  $('#paper-page-caption').textContent = `${pages.length} 页`;
+  $('#paper-pages').innerHTML = pages.length ? pages.map((page) => `<button class="page-card ${page.image_path ? '' : 'no-image'}" data-preview-page="${page.page_number}" type="button">
+    <span class="page-thumb">${page.image_path ? `<img src="/api/v1/projects/${encodeURIComponent(project.id)}/evidence/paper/page-${String(page.page_number).padStart(3, '0')}.png" alt="论文第 ${page.page_number} 页" loading="lazy">` : '无页面图像'}</span>
+    <span class="page-meta"><span>PAGE ${String(page.page_number).padStart(3, '0')}</span><span>${page.width ? `${page.width} × ${page.height}` : 'TEXT'}</span></span>
+  </button>`).join('') : '<div class="empty-state compact">论文尚未摄取，或该格式没有页面图像。</div>';
 }
-function renderSourceIndex(project) {
-  $('#source-index').innerHTML = `<div><span>论文</span><strong title="${escapeAttr(project.paper_path || '')}">${escapeHtml(project.paper_path || '—')}</strong></div><div><span>仓库</span><strong title="${escapeAttr(project.repo_path || '')}">${escapeHtml(project.repo_path || '—')}</strong></div><div><span>论文标题</span><strong>${escapeHtml(project.paper?.title || '—')}</strong></div><div><span>视觉页面</span><strong>${project.paper?.pages?.length || 0} pages</strong></div><div><span>SHA-256</span><strong>${escapeHtml(project.paper?.sha256?.slice(0, 24) || '—')}</strong></div>`;
+
+function renderEvidence(project) {
+  const rows = [];
+  if (project.paper?.source_path) rows.push({ icon: 'file', title: '原始论文', note: project.paper.source_path, href: null });
+  if (project.report?.markdown) rows.push({ icon: 'file', title: 'Markdown 复现报告', note: '规则结论、运行记录与事件链', href: `/api/v1/projects/${encodeURIComponent(project.id)}/report.md` });
+  if (project.report?.package_path) rows.push({ icon: 'download', title: '下载复现证据包', note: '报告、日志、补丁、原始 PDF 与页面图像', href: `/api/v1/projects/${encodeURIComponent(project.id)}/package` });
+  if (project.patch?.diff) rows.push({ icon: 'code', title: `补丁 · ${project.patch.status}`, note: project.patch.files?.join(', ') || '代码变更', href: null });
+  $('#evidence-content').innerHTML = rows.length ? rows.map((row) => `<div class="evidence-row"><span class="evidence-icon"><span data-icon="${row.icon}"></span></span><span class="evidence-copy"><strong>${escapeHtml(row.title)}</strong><small>${escapeHtml(row.note)}</small></span>${row.href ? `<a class="button secondary small" href="${row.href}" ${row.href.endsWith('.md') ? 'target="_blank" rel="noreferrer"' : ''}>打开<span data-icon="arrow"></span></a>` : '<span class="status-badge">已归档</span>'}</div>`).join('') : '<div class="empty-state compact">完成核验后生成报告与证据包。</div>';
 }
+
+function renderContext(project) {
+  $('#source-index').innerHTML = [
+    ['论文标题', project.paper?.title || '—'],
+    ['代码仓库', project.repo_path || '—'],
+    ['SHA-256', project.paper?.sha256?.slice(0, 20) || '—'],
+    ['论文页数', String(project.paper?.pages?.length ?? 0)],
+  ].map(([key, value]) => `<div class="context-item"><span>${key}</span><strong title="${escapeAttr(value)}">${escapeHtml(value)}</strong></div>`).join('');
+  $('#project-runtime').innerHTML = [
+    ['执行器', project.runs?.[0]?.runner || RUNNER_LABELS[state.settings?.runner] || '—'],
+    ['运行镜像', project.plans?.[0]?.image || '—'],
+    ['GPU', project.runs?.some((run) => run.gpu) ? '已使用' : state.settings?.enableGPU ? '已启用' : '未启用'],
+    ['运行次数', String(project.runs?.length ?? 0)],
+    ['补丁审批', project.patch ? project.patch.status : '无补丁'],
+  ].map(([key, value]) => `<div class="context-item"><span>${key}</span><strong title="${escapeAttr(String(value))}">${escapeHtml(String(value))}</strong></div>`).join('');
+}
+
 function renderEvents() {
   const events = [...state.events].sort((a, b) => a.seq - b.seq);
-  $('#event-log').innerHTML = events.length ? events.slice(-80).map((event) => `<div class="event-item ${escapeAttr(event.type)}"><code>#${event.seq} · ${escapeHtml(event.type)}</code><p>${escapeHtml(event.message)}</p></div>`).join('') : '<div class="empty-panel">等待事件。</div>';
+  $('#event-log').innerHTML = events.length ? events.slice(-30).map((event) => `<div class="event-row ${escapeAttr(event.type)}"><code>#${event.seq} · ${escapeHtml(event.type)}</code><p>${escapeHtml(event.message)}</p></div>`).join('') : '<div class="empty-state compact">等待事件。</div>';
   const log = $('#event-log'); log.scrollTop = log.scrollHeight;
+}
+
+function setProjectTab(tab, scroll = true) {
+  state.projectTab = ['workflow', 'paper', 'runs', 'evidence'].includes(tab) ? tab : 'workflow';
+  $$('[data-project-tab]').forEach((button) => {
+    const active = button.dataset.projectTab === state.projectTab;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+  });
+  $$('[data-project-tab-panel]').forEach((panel) => panel.classList.toggle('active', panel.dataset.projectTabPanel === state.projectTab));
+  if (scroll) $('#main-content').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function projectAction(action) {
   if (!state.current) return;
   const project = state.current;
   try {
-    if (action === 'start') state.current = await api(`/api/v1/projects/${project.id}/start`, { method: 'POST' });
-    if (action === 'confirm') state.current = await api(`/api/v1/projects/${project.id}/plan/confirm`, { method: 'POST' });
-    if (action === 'approve') state.current = await api(`/api/v1/projects/${project.id}/patch/approve`, { method: 'POST', body: JSON.stringify({ approved_by: 'web-console' }) });
+    if (action === 'start') state.current = await api(`/api/v1/projects/${project.id}/start`, { method: 'POST', body: '{}' });
+    if (action === 'confirm') {
+      state.current = await api(`/api/v1/projects/${project.id}/plan/confirm`, { method: 'POST', body: '{}' });
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      state.current = await api(`/api/v1/projects/${project.id}`);
+    }
+    if (action === 'approve') {
+      state.current = await api(`/api/v1/projects/${project.id}/patch/approve`, { method: 'POST', body: JSON.stringify({ approved_by: 'web-console' }) });
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      state.current = await api(`/api/v1/projects/${project.id}`);
+    }
     if (action === 'reject') state.current = await api(`/api/v1/projects/${project.id}/patch/reject`, { method: 'POST', body: JSON.stringify({ reason: 'rejected in web console' }) });
-    if (action === 'stop') state.current = await api(`/api/v1/projects/${project.id}/stop`, { method: 'POST' });
-    renderProject(); toast(`操作已提交：${action}`); startProjectPolling();
+    if (action === 'stop') state.current = await api(`/api/v1/projects/${project.id}/stop`, { method: 'POST', body: '{}' });
+    renderProject();
+    await loadProjects();
+    toast(`操作已提交：${{ start: '材料摄取', confirm: '确认计划', approve: '批准补丁', reject: '拒绝补丁', stop: '停止实验' }[action] || action}`, 'ok');
+    startProjectPolling();
   } catch (error) { toast(error.message, 'error'); }
 }
+
 async function selectClaims() {
   if (!state.current) return;
   const claimIds = $$('[data-claim-id]:checked').map((input) => input.dataset.claimId);
-  if (!claimIds.length) return toast('至少选择一条 claim', 'error');
-  try { state.current = await api(`/api/v1/projects/${state.current.id}/claims`, { method: 'POST', body: JSON.stringify({ claim_ids: claimIds }) }); renderProject(); toast('实验计划已生成'); }
-  catch (error) { toast(error.message, 'error'); }
+  if (!claimIds.length) return toast('请至少选择一条实验主张', 'error');
+  try {
+    state.current = await api(`/api/v1/projects/${state.current.id}/claims`, { method: 'POST', body: JSON.stringify({ claim_ids: claimIds }) });
+    renderProject(); await loadProjects();
+    toast('实验计划已生成，请确认后执行', 'ok');
+  } catch (error) { toast(error.message, 'error'); }
 }
+
 function startProjectPolling() {
   if (state.pollTimer) clearInterval(state.pollTimer);
   state.pollTimer = setInterval(async () => {
@@ -267,11 +523,12 @@ function startProjectPolling() {
     try {
       const latest = await api(`/api/v1/projects/${state.current.id}`);
       state.current = latest; renderProject();
-      if (!ACTIVE_STATES.has(latest.state) && state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+      if (TERMINAL_STATES.has(latest.state) && state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
       await loadProjects();
-    } catch { /* next tick retries */ }
-  }, 1500);
+    } catch { /* retry on next tick */ }
+  }, 1600);
 }
+
 function subscribeProjectEvents(projectId) {
   if (state.stream) state.stream.close();
   const after = state.events.at(-1)?.seq || 0;
@@ -283,65 +540,146 @@ function subscribeProjectEvents(projectId) {
   });
 }
 
+function previewPage(pageNumber) {
+  if (!state.current) return;
+  $('#preview-overline').textContent = 'PAPER VISUAL EVIDENCE';
+  $('#preview-title').textContent = `论文第 ${pageNumber} 页`;
+  $('#preview-body').innerHTML = `<img src="/api/v1/projects/${encodeURIComponent(state.current.id)}/evidence/paper/page-${String(pageNumber).padStart(3, '0')}.png" alt="论文第 ${pageNumber} 页">`;
+  $('#preview-footer').textContent = `PAGE ${String(pageNumber).padStart(3, '0')} · 原始 PDF 保留版式、图表与公式`;
+  $('#preview-dialog').showModal();
+}
+
+function previewLog(path) {
+  if (!path || !state.current) return;
+  const relative = evidenceRelativePath(path);
+  $('#preview-overline').textContent = 'EXECUTION LOG';
+  $('#preview-title').textContent = relative;
+  $('#preview-body').innerHTML = '<div class="loading-state"><span class="spinner"></span>正在读取日志…</div>';
+  $('#preview-footer').textContent = 'RUN EVIDENCE · 只读';
+  $('#preview-dialog').showModal();
+  const url = `/api/v1/projects/${encodeURIComponent(state.current.id)}/evidence/${relative.split('/').map(encodeURIComponent).join('/')}`;
+  fetch(url).then(async (response) => {
+    if (!response.ok) throw new Error('无法读取日志');
+    const text = await response.text();
+    $(`#preview-body`).innerHTML = text.trim() ? `<pre>${escapeHtml(text)}</pre>` : '<div class="empty-state compact">该日志为空。</div>';
+  }).catch((error) => {
+    $('#preview-body').innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+  });
+}
+
+function evidenceRelativePath(absolutePath) {
+  const root = String(state.current?.evidence_dir || '').replace(/[\\/]+$/, '');
+  const normalized = String(absolutePath).replace(/\\/g, '/');
+  const normalizedRoot = root.replace(/\\/g, '/');
+  if (normalizedRoot && normalized.startsWith(`${normalizedRoot}/`)) return normalized.slice(normalizedRoot.length + 1);
+  const marker = '/evidence/';
+  const index = normalized.lastIndexOf(marker);
+  return index >= 0 ? normalized.slice(index + marker.length) : normalized.split('/').slice(-3).join('/');
+}
+function closePreview() { if ($('#preview-dialog').open) $('#preview-dialog').close(); }
+
+async function copyDiff() {
+  const diff = state.current?.patch?.diff || '';
+  if (!diff) return;
+  try { await navigator.clipboard.writeText(diff); toast('补丁已复制到剪贴板', 'ok'); }
+  catch { toast('当前环境不支持剪贴板访问', 'error'); }
+}
+
 async function uploadPaper() {
-  const file = $('#paper-file').files[0]; if (!file) return;
-  const chip = $('#paper-file-name'); chip.hidden = false; chip.textContent = `上传中：${file.name}`;
+  const file = $('#paper-file').files[0];
+  if (!file) return;
+  const chip = $('#paper-file-name');
+  chip.hidden = false; chip.textContent = `上传中：${file.name}`;
   try {
     const form = new FormData(); form.append('file', file);
     const result = await api('/api/v1/uploads/paper', { method: 'POST', body: form });
-    $('#paper-path').value = result.paper_path; chip.textContent = `${result.filename} · ${formatBytes(result.size)}`;
-    toast('PDF 已上传，启动时会渲染页面图像', 'ok');
+    $('#paper-path').value = result.paper_path;
+    chip.textContent = `${result.filename} · ${formatBytes(result.size)}`;
+    toast('论文 PDF 已上传，启动时将生成页面视觉证据', 'ok');
   } catch (error) { chip.textContent = '上传失败'; toast(error.message, 'error'); }
   refreshNewRunChecks();
 }
+
 async function uploadRepo() {
-  const file = $('#repo-file').files[0]; if (!file) return;
-  const chip = $('#repo-file-name'); chip.hidden = false; chip.textContent = `上传中：${file.name}`;
+  const file = $('#repo-file').files[0];
+  if (!file) return;
+  const chip = $('#repo-file-name');
+  chip.hidden = false; chip.textContent = `上传中：${file.name}`;
   try {
     const form = new FormData(); form.append('file', file);
     const result = await api('/api/v1/uploads/repo', { method: 'POST', body: form });
-    $('#repo-path').value = result.repo_path; chip.textContent = `${result.filename} · ${formatBytes(result.size)}`;
-    toast('仓库 ZIP 已解压到工作区', 'ok');
+    $('#repo-path').value = result.repo_path;
+    chip.textContent = `${result.filename} · ${formatBytes(result.size)}`;
+    toast('仓库已解压到本地工作区', 'ok');
   } catch (error) { chip.textContent = '上传失败'; toast(error.message, 'error'); }
   refreshNewRunChecks();
+}
+
+function currentRunner() { return $('input[name="runner-choice"]:checked')?.value || 'auto'; }
+
+function refreshRunnerFields() {
+  const runner = currentRunner();
+  $('#runner-select').value = runner;
+  $('#local-fields').hidden = runner !== 'auto' && runner !== 'local';
+  $('#docker-fields').hidden = runner !== 'docker';
+  $('#ssh-fields').hidden = runner !== 'ssh';
+  $('#platform-fields').hidden = runner !== 'colab' && runner !== 'platform';
+  refreshNewRunChecks();
+}
+
+function refreshCodeAgentFields() {
+  const custom = $('#code-agent-select').value === 'command';
+  $('#code-agent-command-field').hidden = !custom;
+  $('#code-agent-command').placeholder = { codex: 'codex exec --approve-for-me --ephemeral', claude: 'claude -p --allowedTools Read,Edit,Write,Bash', gemini: 'gemini', command: 'your-coding-agent --non-interactive' }[$('#code-agent-select').value] || '';
+  refreshNewRunChecks();
+}
+
+function refreshNewRunChecks() {
+  const paper = $('#paper-path').value.trim();
+  const repo = $('#repo-path').value.trim();
+  const runner = currentRunner();
+  const codeAgent = $('#code-agent-enabled').checked;
+  const runs = $('#max-runs').value;
+  const seconds = $('#max-seconds').value;
+  const ready = Boolean(paper && repo);
+  $('#summary-paper').textContent = paper ? paper.split(/[\\/]/).pop() : '待提供';
+  $('#summary-runner').textContent = RUNNER_LABELS[runner] || runner;
+  $('#summary-gpu').textContent = $('#enable-gpu').checked ? '已启用' : '关闭';
+  $('#summary-code-agent').textContent = codeAgent ? CODE_AGENT_LABELS[$('#code-agent-select').value] : '关闭';
+  $('#summary-budget').textContent = `${runs} 次 / ${seconds} 秒`;
+  const readiness = $('#creation-readiness');
+  readiness.className = `readiness ${ready ? 'ready' : 'warning'}`;
+  readiness.innerHTML = ready ? `${icon('check')}<p>材料已就绪。创建后将立即开始摄取与论文页面渲染。</p>` : `${icon('info')}<p>请提供论文 PDF 和代码仓库路径以创建实验。</p>`;
 }
 
 async function createProject() {
   const paperPath = $('#paper-path').value.trim();
   const repoPath = $('#repo-path').value.trim();
-  if (!paperPath || !repoPath) return toast('论文路径与仓库路径不能为空', 'error');
-  const button = $('#create-project-button'); button.disabled = true; button.textContent = '创建中…';
+  if (!paperPath || !repoPath) return toast('论文路径与代码仓库不能为空', 'error');
+  const button = $('#create-project-button');
+  button.disabled = true; button.textContent = '正在创建…';
   try {
-    const runner = $('#runner-select').value;
-    const codeAgent = $('#code-agent-select').value;
-    const settingsPatch = { runner, enableGPU: $('#enable-gpu').checked, codeAgent: { type: codeAgent, ...(codeAgent === 'command' ? { command: $('#code-agent-command').value.trim() } : {}) } };
-    if (runner === 'ssh') settingsPatch.remote = { host: $('#ssh-host').value.trim(), port: Number($('#ssh-port').value), identity: $('#ssh-identity').value.trim(), baseDir: $('#ssh-base-dir').value.trim() };
-    if (runner === 'colab' || runner === 'platform') settingsPatch.platform = { baseURL: $('#platform-base-url').value.trim(), apiKey: $('#platform-api-key').value.trim(), provider: $('#platform-provider').value.trim(), image: $('#platform-image').value.trim(), gpuType: $('#platform-gpu-type').value.trim(), minVRAMGB: Number($('#platform-min-vram').value), maxHourlyUSD: Number($('#platform-max-price').value), pollIntervalMs: Number($('#platform-poll').value) };
-    try { await api('/api/v1/settings', { method: 'PUT', body: JSON.stringify(settingsPatch) }); } catch { /* settings can be unavailable */ }
+    const runner = currentRunner();
+    const codeAgentEnabled = $('#code-agent-enabled').checked;
+    const patch = {
+      runner, enableGPU: $('#enable-gpu').checked,
+      codeAgent: { type: codeAgentEnabled ? $('#code-agent-select').value : 'none', command: codeAgentEnabled ? $('#code-agent-command').value.trim() : '' },
+    };
+    if (runner === 'ssh') patch.remote = { host: $('#ssh-host').value.trim(), port: Number($('#ssh-port').value), identity: $('#ssh-identity').value.trim(), baseDir: $('#ssh-base-dir').value.trim() };
+    if (runner === 'colab' || runner === 'platform') patch.platform = { baseURL: $('#platform-base-url').value.trim(), apiKey: $('#platform-api-key').value.trim(), provider: $('#platform-provider').value.trim(), image: $('#platform-image').value.trim(), gpuType: $('#platform-gpu-type').value.trim(), minVRAMGB: Number($('#platform-min-vram').value), maxHourlyUSD: Number($('#platform-max-price').value), pollIntervalMs: Number($('#platform-poll').value) };
+    try { state.settings = await api('/api/v1/settings', { method: 'PUT', body: JSON.stringify(patch) }); } catch (error) { toast(`运行环境未应用：${error.message}`, 'error'); return; }
     const project = await api('/api/v1/projects', { method: 'POST', body: JSON.stringify({ name: $('#project-name-input').value.trim(), paper_path: paperPath, repo_path: repoPath, data_path: $('#data-path').value.trim(), budget: { max_runs: Number($('#max-runs').value), max_seconds: Number($('#max-seconds').value), max_patches: Number($('#max-patches').value) } }) });
-    state.current = await api(`/api/v1/projects/${project.id}/start`, { method: 'POST' });
-    await loadProjects(); setView('project'); renderProject(); subscribeProjectEvents(project.id);
-    toast('项目已创建，论文与仓库摄取完成');
+    state.current = await api(`/api/v1/projects/${project.id}/start`, { method: 'POST', body: '{}' });
+    await loadProjects(); setView('project'); renderProject(); subscribeProjectEvents(project.id); startProjectPolling();
+    toast('复现实验已创建，材料摄取完成', 'ok');
   } catch (error) { toast(error.message, 'error'); }
-  finally { button.disabled = false; button.innerHTML = '创建并开始摄取 <span>→</span>'; }
+  finally { button.disabled = false; button.innerHTML = '创建并开始摄取<span data-icon="arrow"></span>'; mountIcons(); }
 }
 
-function refreshRunnerFields() {
-  const runner = $('#runner-select').value;
-  $('#ssh-fields').hidden = runner !== 'ssh';
-  $('#platform-fields').hidden = runner !== 'colab' && runner !== 'platform';
-  $('#docker-fields').hidden = runner !== 'docker';
-  $('#local-fields').hidden = runner !== 'local' && runner !== 'auto';
-  const help = { auto: '自动优先 Docker，回退到本机。', local: '本机进程，仅回环地址建议使用。', docker: '容器隔离，禁止网络并限制资源。', ssh: '通过 SSH 上传工作区并执行。', colab: 'Colab 风格租赁平台 HTTP 适配器。', platform: '通用租赁平台 HTTP 适配器。' };
-  $('#runner-help').textContent = help[runner] || ''; refreshNewRunChecks();
-}
-function refreshCodeAgentFields() { $('#code-agent-command-field').hidden = $('#code-agent-select').value !== 'command'; }
-function refreshNewRunChecks() {
-  const setCheck = (id, ok) => { const element = $(id); element.textContent = ok ? '✓' : '○'; element.classList.toggle('ok', ok); };
-  setCheck('#check-paper', Boolean($('#paper-path')?.value.trim()));
-  setCheck('#check-repo', Boolean($('#repo-path')?.value.trim()));
-  setCheck('#check-model', Boolean(state.settings?.llm?.baseURL && state.settings?.llm?.model));
-  setCheck('#check-runner', Boolean($('#runner-select')?.value));
+function setSettingsTab(tab) {
+  state.settingsTab = ['model', 'execution', 'compute'].includes(tab) ? tab : 'model';
+  $$('[data-settings-tab]').forEach((button) => button.classList.toggle('active', button.dataset.settingsTab === state.settingsTab));
+  $$('[data-settings-panel]').forEach((panel) => panel.classList.toggle('active', panel.dataset.settingsPanel === state.settingsTab));
 }
 
 function fillSettingsForm() {
@@ -356,6 +694,8 @@ function fillSettingsForm() {
   $('#settings-gpu').checked = Boolean(settings.enableGPU);
   $('#settings-code-agent').value = settings.codeAgent?.type || 'none';
   $('#settings-code-command').value = settings.codeAgent?.command || '';
+  $('#settings-code-acceptance').checked = Boolean(settings.codeAgent?.runAcceptance);
+  $('#settings-code-timeout').value = settings.codeAgent?.timeoutMs || 600000;
   $('#settings-ssh-host').value = settings.remote?.host || '';
   $('#settings-ssh-port').value = settings.remote?.port || 22;
   $('#settings-ssh-identity').value = settings.remote?.identity || '';
@@ -367,54 +707,92 @@ function fillSettingsForm() {
   $('#settings-platform-gpu').value = settings.platform?.gpuType || '';
   $('#settings-platform-vram').value = settings.platform?.minVRAMGB || 16;
   $('#settings-platform-price').value = settings.platform?.maxHourlyUSD ?? 0.5;
+  $('#settings-platform-poll').value = settings.platform?.pollIntervalMs || 2000;
   $('#settings-platform-timeout').value = settings.platform?.timeoutMs || 1800000;
+  $('#settings-model-state').textContent = settings.llm?.baseURL ? `${settings.llm.model} · 已配置` : '未配置模型';
 }
+
 function applyModelPreset() {
-  const index = $('#settings-llm-preset').value; if (index === '') return;
-  const preset = state.options?.model_presets?.[Number(index)]; if (!preset) return;
-  $('#settings-llm-base-url').value = preset.base_url; $('#settings-llm-model').value = preset.model;
+  const index = $('#settings-llm-preset').value;
+  if (index === '') return;
+  const preset = state.options?.model_presets?.[Number(index)];
+  if (!preset) return;
+  $('#settings-llm-base-url').value = preset.base_url;
+  $('#settings-llm-model').value = preset.model;
+  $('#settings-model-state').textContent = `${preset.model} · 待保存`;
 }
+
 async function saveSettings() {
-  const button = $('#save-settings-button'); button.disabled = true;
+  const button = $('#save-settings-button');
+  button.disabled = true;
   try {
     const patch = {
       runner: $('#settings-runner').value, enableGPU: $('#settings-gpu').checked,
-      llm: { baseURL: $('#settings-llm-base-url').value.trim(), model: $('#settings-llm-model').value.trim(), timeoutMs: Number($('#settings-llm-timeout').value), vision: $('#settings-llm-vision').checked, ...(($('#settings-llm-api-key').value || '').trim() ? { apiKey: $('#settings-llm-api-key').value.trim() } : {}) },
-      codeAgent: { type: $('#settings-code-agent').value, command: $('#settings-code-command').value.trim() },
+      llm: {
+        baseURL: $('#settings-llm-base-url').value.trim(), model: $('#settings-llm-model').value.trim(),
+        timeoutMs: Number($('#settings-llm-timeout').value), vision: $('#settings-llm-vision').checked,
+        ...(($('#settings-llm-api-key').value || '').trim() ? { apiKey: $('#settings-llm-api-key').value.trim() } : {}),
+      },
+      codeAgent: { type: $('#settings-code-agent').value, command: $('#settings-code-command').value.trim(), timeoutMs: Number($('#settings-code-timeout').value), runAcceptance: $('#settings-code-acceptance').checked },
       remote: { host: $('#settings-ssh-host').value.trim(), port: Number($('#settings-ssh-port').value), identity: $('#settings-ssh-identity').value.trim(), baseDir: $('#settings-ssh-base-dir').value.trim() },
-      platform: { baseURL: $('#settings-platform-url').value.trim(), provider: $('#settings-platform-provider').value.trim(), image: $('#settings-platform-image').value.trim(), gpuType: $('#settings-platform-gpu').value.trim(), minVRAMGB: Number($('#settings-platform-vram').value), maxHourlyUSD: Number($('#settings-platform-price').value), timeoutMs: Number($('#settings-platform-timeout').value), ...(($('#settings-platform-key').value || '').trim() ? { apiKey: $('#settings-platform-key').value.trim() } : {}) },
+      platform: {
+        baseURL: $('#settings-platform-url').value.trim(), provider: $('#settings-platform-provider').value.trim(), image: $('#settings-platform-image').value.trim(),
+        gpuType: $('#settings-platform-gpu').value.trim(), minVRAMGB: Number($('#settings-platform-vram').value), maxHourlyUSD: Number($('#settings-platform-price').value),
+        pollIntervalMs: Number($('#settings-platform-poll').value), timeoutMs: Number($('#settings-platform-timeout').value),
+        ...(($('#settings-platform-key').value || '').trim() ? { apiKey: $('#settings-platform-key').value.trim() } : {}),
+      },
     };
     state.settings = await api('/api/v1/settings', { method: 'PUT', body: JSON.stringify(patch) });
-    fillSettingsForm(); renderRuntimeConfig(); toast('运行时设置已保存并应用', 'ok');
+    fillSettingsForm(); renderRuntimeConfig();
+    toast('运行时设置已保存并应用', 'ok');
   } catch (error) { toast(error.message, 'error'); }
   finally { button.disabled = false; }
 }
+
 async function testLLM() {
-  const status = $('#llm-test-result'); status.textContent = '测试中…'; status.className = 'inline-status';
-  try { const result = await api('/api/v1/settings/test-llm', { method: 'POST' }); status.textContent = `连接成功 · ${result.claims?.length || 0} claims`; status.className = 'inline-status ok'; toast('模型连接正常', 'ok'); }
-  catch (error) { status.textContent = error.message; status.className = 'inline-status bad'; toast(error.message, 'error'); }
+  const status = $('#llm-test-result');
+  const badge = $('#llm-status');
+  status.textContent = '正在测试连接…'; status.className = 'inline-status';
+  badge.textContent = '测试中'; badge.className = 'status-badge neutral';
+  try {
+    const result = await api('/api/v1/settings/test-llm', { method: 'POST', body: '{}' });
+    status.textContent = `连接正常 · 返回 ${result.claims?.length || 0} 条主张`; status.className = 'inline-status ok';
+    badge.textContent = '连接正常'; badge.className = 'status-badge success';
+    toast('模型连接正常', 'ok');
+  } catch (error) {
+    status.textContent = error.message; status.className = 'inline-status bad';
+    badge.textContent = '连接失败'; badge.className = 'status-badge danger';
+    toast(error.message, 'error');
+  }
 }
 
 function openCommandPalette() {
-  $('#command-modal').hidden = false; $('#command-input').value = ''; state.commandIndex = 0;
+  if (!$('#command-dialog').open) $('#command-dialog').showModal();
+  $('#command-input').value = '';
+  state.commandIndex = 0;
   state.commands = [
-    { icon: '＋', label: '新建复现工程', hint: 'N', run: () => setView('new-run') },
-    { icon: '◈', label: '打开总览', hint: 'G', run: () => setView('overview') },
-    { icon: '▤', label: '查看全部项目', hint: '', run: () => setView('projects') },
-    { icon: '⚙', label: '运行时设置', hint: '', run: () => setView('settings') },
-    { icon: '↻', label: '刷新工作区', hint: '', run: () => void refreshAll() },
-    ...state.projects.slice(0, 8).map((project) => ({ icon: '▸', label: `打开：${project.name}`, hint: project.state, run: () => void openProject(project.id) })),
+    { icon: 'plus', label: '新建复现实验', hint: 'N', run: () => setView('new-run') },
+    { icon: 'dashboard', label: '打开科研工作台', hint: 'G', run: () => setView('overview') },
+    { icon: 'projects', label: '查看全部项目', hint: '', run: () => setView('projects') },
+    { icon: 'settings', label: '打开模型与算力设置', hint: '', run: () => setView('settings') },
+    { icon: 'docs', label: '查看指南与接口', hint: '', run: () => setView('docs') },
+    { icon: 'play', label: '运行内置演示', hint: '', run: () => void runDemo() },
+    ...state.projects.slice(0, 8).map((project) => ({ icon: 'file', label: project.name, hint: STATE_LABELS[project.state] || project.state, run: () => void openProject(project.id) })),
   ];
-  renderCommandResults(); $('#command-input').focus();
+  renderCommandResults();
+  $('#command-input').focus();
 }
-function closeCommandPalette() { $('#command-modal').hidden = true; }
+
+function closeCommandPalette() { if ($('#command-dialog').open) $('#command-dialog').close(); }
+
 function renderCommandResults() {
   const query = $('#command-input').value.toLowerCase().trim();
   const commands = state.commands.filter((command) => !query || command.label.toLowerCase().includes(query));
   state.commandIndex = Math.min(state.commandIndex, Math.max(0, commands.length - 1));
-  $('#command-results').innerHTML = commands.length ? commands.map((command, index) => `<button class="command-result ${index === state.commandIndex ? 'selected' : ''}" data-command-index="${index}" type="button"><span>${command.icon}</span><span>${escapeHtml(command.label)}</span><small>${escapeHtml(command.hint)}</small></button>`).join('') : '<div class="empty-panel">没有匹配命令。</div>';
-  $$('.command-result').forEach((button) => button.addEventListener('click', () => { commands[Number(button.dataset.commandIndex)]?.run(); closeCommandPalette(); }));
+  $('#command-results').innerHTML = commands.length ? commands.map((command, index) => `<button class="command-item ${index === state.commandIndex ? 'selected' : ''}" data-command-index="${index}" type="button">${icon(command.icon)}<span>${escapeHtml(command.label)}</span><small>${escapeHtml(command.hint)}</small></button>`).join('') : '<div class="empty-state compact">没有匹配的操作。</div>';
+  $$('.command-item').forEach((button) => button.addEventListener('click', () => { commands[Number(button.dataset.commandIndex)]?.run(); closeCommandPalette(); }));
 }
+
 function handleCommandKey(event) {
   const query = $('#command-input').value.toLowerCase().trim();
   const commands = state.commands.filter((command) => !query || command.label.toLowerCase().includes(query));
@@ -427,27 +805,35 @@ async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (options.body && typeof options.body === 'string') headers['Content-Type'] = 'application/json';
   const response = await fetch(path, { ...options, headers });
-  const text = await response.text(); let data = null;
+  const text = await response.text();
+  let data = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = { error: { message: text } }; }
   if (!response.ok) throw new Error(data?.error?.message || `HTTP ${response.status}`);
   return data;
 }
-function toast(message, type = '') {
-  const element = $('#toast'); element.textContent = message; element.className = `toast show ${type}`;
-  clearTimeout(toast.timer); toast.timer = setTimeout(() => { element.className = 'toast'; }, 3600);
-}
-function stateClass(value) {
-  if (value === 'COMPLETED') return 'success';
-  if (value === 'FAILED' || value === 'STOPPED') return 'danger';
-  if (value === 'AWAITING_PATCH' || value === 'AWAITING_CLAIMS' || value === 'AWAITING_PLAN') return 'warning';
-  return 'neutral';
-}
-function formatNumber(value) { const number = Number(value); if (!Number.isFinite(number)) return '—'; return Number.isInteger(number) ? String(number) : String(Number(number.toPrecision(6))); }
-function formatBytes(bytes) { if (!Number.isFinite(bytes)) return '—'; if (bytes < 1024) return `${bytes} B`; if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`; return `${(bytes / (1024 * 1024)).toFixed(1)} MB`; }
-function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char])); }
-function escapeAttr(value) { return escapeHtml(value); }
 
-document.addEventListener('click', (event) => {
-  const projectButton = event.target.closest('[data-open-project]');
-  if (projectButton) { event.preventDefault(); void openProject(projectButton.dataset.openProject); }
-});
+function toast(message, type = '') {
+  const element = $('#toast');
+  element.textContent = message;
+  element.className = `toast show ${type}`;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => { element.className = 'toast'; }, 3600);
+}
+
+function formatNumber(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '—';
+  return Number.isInteger(number) ? String(number) : String(Number(number.toPrecision(6)));
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes)) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+}
+function escapeAttr(value) { return escapeHtml(value); }

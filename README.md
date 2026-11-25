@@ -2,7 +2,7 @@
 
 ReproLens 是一个用 **TypeScript / Node.js** 实现的“主张驱动”论文实验复现 Agent。它不把“代码能跑”当成“论文复现成功”，而是把论文主张、实验计划、受控执行、失败诊断、代码实现委派、人工审批、规则核验和证据包串成一条可审计闭环。
 
-![ReproLens overview](docs/ui-overview.png)
+![ReproLens overview](docs/observatory-overview-final.png)
 
 ## 核心闭环
 
@@ -204,6 +204,36 @@ CodeAgent 不会直接写原始工作区，也不会写最终 verdict。
 
 详细说明见 `docs/real-paper-test.md`。
 
+
+## Observatory 界面
+
+控制台采用面向科研工作流的设计：
+
+- 工作台展示真实项目统计、当前研究与最近项目；
+- 项目工作区提供六阶段复现轨道、实验主张、计划、补丁审批与规则核验；
+- 论文页签直接渲染原始 PDF 页面缩略图，并支持大图查看；
+- 运行与日志页签展示结构化运行记录，stdout/stderr 在只读弹窗中打开；
+- 模型与算力分为模型接入、执行与代码 Agent、远程与算力平台三组；
+- 支持浅色/深色主题、可折叠侧栏、`Ctrl/Cmd + K` 命令面板、键盘焦点与 reduced-motion；
+- 1440 / 1024 / 390 / 320 宽度均通过无横向溢出检查。
+
+界面证据：
+
+- `docs/observatory-overview-final.png`
+- `docs/observatory-new-run-filled.png`
+- `docs/observatory-project-plan.png`
+- `docs/observatory-project-patch.png`
+- `docs/observatory-project-pass.png`
+- `docs/observatory-paper-real.png`
+- `docs/observatory-paper-preview.png`
+- `docs/observatory-settings.png`
+- `docs/observatory-settings-execution.png`
+- `docs/observatory-settings-compute.png`
+- `docs/observatory-mobile-390.png`
+- `docs/observatory-mobile-320.png`
+- `docs/observatory-1024.png`
+- `docs/observatory-dark.png`
+- `docs/observatory-project-error.png`
 ## 目录
 
 ```text
