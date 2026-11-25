@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"reprolens/internal/codeagent"
 	"reprolens/internal/domain"
 	"reprolens/internal/tools"
 )
@@ -28,10 +29,39 @@ func (o *Orchestrator) executePlans(ctx context.Context, project *domain.Project
 			if err := o.checkStopped(ctx, project); err != nil {
 				return project, nil
 			}
-			if diagnosis == nil || strings.TrimSpace(diagnosis.PatchDiff) == "" {
+			if diagnosis == nil {
+				return o.failProject(context.Background(), project, fmt.Errorf("experiment failed and no diagnosis was produced"))
+			}
+			var delegated *codeagent.Result
+			if strings.TrimSpace(diagnosis.PatchDiff) == "" && diagnosis.NeedsCodeAgent && o.codeAgent != nil {
+				claim := claimByID(project, plan.ClaimID)
+				delegated, err = o.codeAgent.Propose(ctx, codeagent.Task{
+					ProjectID: project.ID, ClaimID: plan.ClaimID, Workspace: project.WorkspacePath,
+					EvidenceDir: project.EvidenceDir, AcceptanceCommand: plan.Command,
+					Paper: project.Paper, Claim: claim, Plan: plan, Run: run, Diagnosis: *diagnosis,
+				})
+				if err != nil {
+					return o.failProject(context.Background(), project, fmt.Errorf("code agent delegation failed: %w", err))
+				}
+				if delegated == nil || strings.TrimSpace(delegated.Diff) == "" {
+					return o.failProject(context.Background(), project, fmt.Errorf("code agent returned no implementation diff"))
+				}
+				diagnosis.PatchDiff = delegated.Diff
+				diagnosis.Explanation = strings.TrimSpace(diagnosis.Explanation + " Delegated implementation produced by " + delegated.Agent + ".")
+				if _, err := o.appendEvent(ctx, project.ID, "code_agent_proposed", "code agent produced an implementation diff", map[string]any{
+					"agent": delegated.Agent, "version": delegated.Version, "files": delegated.Files,
+					"log_path": delegated.LogPath, "duration_ms": delegated.Duration.Milliseconds(),
+				}); err != nil {
+					return o.failProject(context.Background(), project, err)
+				}
+			}
+			if strings.TrimSpace(diagnosis.PatchDiff) == "" {
 				message := "experiment failed and no safe patch was proposed"
-				if diagnosis != nil && diagnosis.RootCause != "" {
+				if diagnosis.RootCause != "" {
 					message = diagnosis.RootCause
+				}
+				if diagnosis.NeedsCodeAgent && o.codeAgent == nil {
+					message += "; configure REPROLENS_CODE_AGENT_CMD to delegate implementation"
 				}
 				return o.failProject(context.Background(), project, fmt.Errorf("%s", message))
 			}
@@ -43,11 +73,18 @@ func (o *Orchestrator) executePlans(ctx context.Context, project *domain.Project
 			if err != nil {
 				return o.failProject(context.Background(), project, fmt.Errorf("proposed patch failed safety validation: %w", err))
 			}
-			project.Patch = &domain.PatchProposal{
+			patch := &domain.PatchProposal{
 				ID: newID("patch"), RunID: run.ID, ClaimID: plan.ClaimID,
 				Diagnosis: *diagnosis, Diff: diagnosis.PatchDiff, Files: files,
 				Status: "proposed", CreatedAt: time.Now().UTC(),
 			}
+			if delegated != nil {
+				patch.CodeAgent = delegated.Agent
+				patch.CodeAgentVersion = delegated.Version
+				patch.CodeAgentLogPath = delegated.LogPath
+				patch.CodeAgentSummary = delegated.Summary
+			}
+			project.Patch = patch
 			project.PatchAttempts++
 			project.Error = ""
 			if err := o.saveProject(ctx, project); err != nil {
@@ -102,7 +139,7 @@ func (o *Orchestrator) runPlan(ctx context.Context, project *domain.Project, pla
 	runID := newID("run")
 	timeout := time.Duration(project.Budget.MaxSeconds) * time.Second
 	result, err := o.runner.Execute(ctx, tools.ExecutionRequest{
-		RunID: runID, Workspace: project.WorkspacePath, EvidenceDir: project.EvidenceDir,
+		ProjectID: project.ID, RunID: runID, Workspace: project.WorkspacePath, EvidenceDir: project.EvidenceDir,
 		Command: plan.Command, Image: plan.Image, WorkDir: plan.WorkDir, Seed: plan.Seed,
 		Timeout: timeout,
 	})
@@ -115,6 +152,7 @@ func (o *Orchestrator) runPlan(ctx context.Context, project *domain.Project, pla
 		Status: result.Status, ExitCode: result.ExitCode, StartedAt: result.StartedAt,
 		FinishedAt: result.FinishedAt, DurationMS: result.DurationMS, StdoutPath: result.StdoutPath,
 		StderrPath: result.StderrPath, Stdout: result.Stdout, Stderr: result.Stderr, Env: result.Env,
+		GPU: result.GPU, Provider: result.Provider, RemoteJobID: result.RemoteJobID, OfferID: result.OfferID,
 	}
 	if result.Status == "succeeded" {
 		if metric, err := tools.ExtractMetric(result.Stdout, plan.MetricSource); err == nil {
@@ -183,4 +221,13 @@ func (o *Orchestrator) finishReport(ctx context.Context, project *domain.Project
 		return o.failProject(context.Background(), project, err)
 	}
 	return project, nil
+}
+
+func claimByID(project *domain.Project, claimID string) domain.Claim {
+	for _, claim := range project.Claims {
+		if claim.ID == claimID {
+			return claim
+		}
+	}
+	return domain.Claim{ID: claimID}
 }

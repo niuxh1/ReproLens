@@ -138,3 +138,29 @@ func contains(items []string, want string) bool {
 	}
 	return false
 }
+
+func TestPatchManagerAppliesNewFile(t *testing.T) {
+	ws, err := NewWorkspace(t.TempDir(), "p_newfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws.Root, "run.py"), []byte("print('old')\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pm := &PatchManager{Workspace: ws.Root}
+	diff := "--- /dev/null\n+++ b/implementation.py\n@@ -0,0 +1,2 @@\n+def solve():\n+    return 42\n"
+	files, err := pm.Apply(diff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0] != "implementation.py" {
+		t.Fatalf("files = %+v", files)
+	}
+	data, err := os.ReadFile(filepath.Join(ws.Root, "implementation.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "return 42") {
+		t.Fatalf("new file = %s", data)
+	}
+}

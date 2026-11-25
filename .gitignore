@@ -11,3 +11,6 @@ dist/
 .vscode/
 .DS_Store
 Thumbs.db
+.work/
+# Superseded classic-paper example retained locally but not part of the deliverable
+examples/iris-flda/

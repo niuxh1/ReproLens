@@ -13,6 +13,7 @@ import (
 )
 
 type ExecutionRequest struct {
+	ProjectID   string
 	RunID       string
 	Workspace   string
 	EvidenceDir string
@@ -25,20 +26,24 @@ type ExecutionRequest struct {
 }
 
 type ExecutionResult struct {
-	Runner     string
-	Status     string
-	Command    string
-	Image      string
-	WorkDir    string
-	ExitCode   int
-	StartedAt  time.Time
-	FinishedAt time.Time
-	DurationMS int64
-	Stdout     string
-	Stderr     string
-	StdoutPath string
-	StderrPath string
-	Env        map[string]string
+	Runner      string
+	Status      string
+	Command     string
+	Image       string
+	WorkDir     string
+	ExitCode    int
+	StartedAt   time.Time
+	FinishedAt  time.Time
+	DurationMS  int64
+	Stdout      string
+	Stderr      string
+	StdoutPath  string
+	StderrPath  string
+	Env         map[string]string
+	GPU         bool
+	Provider    string
+	RemoteJobID string
+	OfferID     string
 }
 
 type Runner interface {
@@ -162,8 +167,8 @@ func buildExecutionEnv(req ExecutionRequest) map[string]string {
 	env := map[string]string{}
 	keys := []string{
 		"PATH", "PATHEXT", "SystemRoot", "ComSpec", "WINDIR", "TEMP", "TMP",
-		"USERPROFILE", "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA", "APPDATA",
-		"HOME", "TMPDIR", "LANG", "LC_ALL", "TERM",
+		"USERPROFILE", "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA", "APPDATA", "USERNAME", "USERDOMAIN", "COMPUTERNAME", "USER", "LOGNAME",
+		"HOME", "TMPDIR", "LANG", "LC_ALL", "TERM", "CUDA_VISIBLE_DEVICES", "NVIDIA_VISIBLE_DEVICES", "MPLBACKEND",
 	}
 	for _, key := range keys {
 		if value, ok := os.LookupEnv(key); ok {
@@ -222,6 +227,7 @@ func writeRunEvidence(req ExecutionRequest, result *ExecutionResult) error {
 		"work_dir": req.WorkDir, "status": result.Status, "exit_code": result.ExitCode,
 		"started_at": result.StartedAt, "finished_at": result.FinishedAt, "duration_ms": result.DurationMS,
 		"env": result.Env, "stdout": "stdout.log", "stderr": "stderr.log",
+		"gpu": result.GPU, "provider": result.Provider, "remote_job_id": result.RemoteJobID, "offer_id": result.OfferID,
 	}
 	b, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {

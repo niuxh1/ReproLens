@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -105,5 +106,46 @@ func TestExtractMetricFromStdout(t *testing.T) {
 	}
 	if _, err := ExtractMetric("no metric here", domain.MetricSource{Kind: "stdout_regex", Pattern: `accuracy=(\d+)`}); err == nil {
 		t.Fatal("expected missing metric error")
+	}
+}
+
+func TestLocalRunnerEnablesCUDAWhenConfigured(t *testing.T) {
+	if _, err := exec.LookPath("python"); err != nil {
+		t.Skip("python not available")
+	}
+	ws, err := NewWorkspace(t.TempDir(), "runner_gpu")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := NewLocalRunnerWithGPU(true)
+	probe := "import os\nprint('cuda_visible=' + os.getenv('CUDA_VISIBLE_DEVICES',''))\n"
+	if err := os.WriteFile(filepath.Join(ws.Root, "cuda_probe.py"), []byte(probe), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runner.Execute(context.Background(), ExecutionRequest{
+		RunID: "run_gpu", Workspace: ws.Root, EvidenceDir: ws.EvidenceDir,
+		Command: "python cuda_probe.py",
+		WorkDir: ".", Seed: 42, Timeout: 10 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.GPU || !strings.Contains(result.Stdout, "cuda_visible=0") {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestDockerRunnerBuildsGPUArgs(t *testing.T) {
+	d := NewDockerRunnerWithGPU(true)
+	args, err := d.BuildArgs(ExecutionRequest{
+		Workspace: t.TempDir(), WorkDir: ".", Image: "pytorch/pytorch:2.11.0-cuda12.8-cudnn9-runtime",
+		Command: "python train.py", Seed: 42,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--gpus all") || !strings.Contains(joined, "NVIDIA_VISIBLE_DEVICES=all") {
+		t.Fatalf("GPU args missing: %s", joined)
 	}
 }

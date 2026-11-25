@@ -156,11 +156,11 @@ func renderReportMarkdown(project *domain.Project, events []domain.Event, report
 	}
 	if len(project.Runs) > 0 {
 		b.WriteString("## Run history\n\n")
-		b.WriteString("| Attempt | Runner | Status | Exit | Duration (ms) | Stdout | Stderr |\n")
-		b.WriteString("|---:|---|---|---:|---:|---|---|\n")
+		b.WriteString("| Attempt | Runner | Provider | GPU | Status | Exit | Duration (ms) | Stdout | Stderr |\n")
+		b.WriteString("|---:|---|---|:---:|---|---:|---:|---|---|\n")
 		for _, run := range project.Runs {
-			fmt.Fprintf(&b, "| %d | %s | %s | %d | %d | `%s` | `%s` |\n",
-				run.Attempt, run.Runner, run.Status, run.ExitCode, run.DurationMS, run.StdoutPath, run.StderrPath)
+			fmt.Fprintf(&b, "| %d | %s | %s | %v | %s | %d | %d | `%s` | `%s` |\n",
+				run.Attempt, run.Runner, run.Provider, run.GPU, run.Status, run.ExitCode, run.DurationMS, run.StdoutPath, run.StderrPath)
 		}
 		b.WriteString("\n")
 	}
@@ -176,6 +176,19 @@ func renderReportMarkdown(project *domain.Project, events []domain.Event, report
 			fmt.Fprintf(&b, "- Applied at: %s\n", project.Patch.AppliedAt.Format(time.RFC3339))
 		}
 		fmt.Fprintf(&b, "- Diagnosis: %s — %s\n", project.Patch.Diagnosis.FailureClass, project.Patch.Diagnosis.RootCause)
+		if project.Patch.CodeAgent != "" {
+			fmt.Fprintf(&b, "- Code agent: `%s`", project.Patch.CodeAgent)
+			if project.Patch.CodeAgentVersion != "" {
+				fmt.Fprintf(&b, " (%s)", project.Patch.CodeAgentVersion)
+			}
+			b.WriteString("\n")
+			if project.Patch.CodeAgentLogPath != "" {
+				fmt.Fprintf(&b, "- Code agent log: `%s`\n", project.Patch.CodeAgentLogPath)
+			}
+			if project.Patch.CodeAgentSummary != "" {
+				fmt.Fprintf(&b, "- Code agent summary: %s\n", project.Patch.CodeAgentSummary)
+			}
+		}
 		b.WriteString("\n```diff\n")
 		b.WriteString(strings.TrimSpace(project.Patch.Diff))
 		b.WriteString("\n```\n\n")
@@ -213,6 +226,7 @@ func reportEvidence(project *domain.Project) []domain.EvidenceRef {
 	}
 	if project.Patch != nil {
 		add("patch", project.Patch.ID)
+		add("code_agent_log", project.Patch.CodeAgentLogPath)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Kind < out[j].Kind })
 	return out

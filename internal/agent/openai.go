@@ -184,7 +184,7 @@ func (a *OpenAICompatibleAnalyzer) BuildPlan(ctx context.Context, claim domain.C
 
 func (a *OpenAICompatibleAnalyzer) Diagnose(ctx context.Context, run domain.Run, repo domain.RepoSummary, _ string) (*domain.Diagnosis, error) {
 	prompt := "Diagnose this failed computational experiment. Return only JSON with shape " +
-		`{"failure_class":"seed_mismatch|dependency_missing|path_error|syntax_error|timeout|unknown","root_cause":"...","confidence":"high|medium|low","patch_diff":"optional unified diff","explanation":"..."}. ` +
+		`{"failure_class":"seed_mismatch|dependency_missing|path_error|syntax_error|timeout|unknown","root_cause":"...","confidence":"high|medium|low","needs_code_agent":false,"patch_diff":"optional unified diff","explanation":"..."}. ` +
 		"Do not propose changing the data split, metric definition, or expected paper value. A patch must be minimal and expressed as a git-compatible unified diff. " +
 		"If no safe patch is supported, leave patch_diff empty.\n\nRun:\n" + runSummary(run) + "\n\nRepository:\n" + summarizeRepo(repo)
 	content, err := a.chat(ctx, "You are a conservative computational reproduction debugger. Return valid JSON only.", prompt)
@@ -201,6 +201,9 @@ func (a *OpenAICompatibleAnalyzer) Diagnose(ctx context.Context, run domain.Run,
 	}
 	if diagnosis.Confidence != "high" && diagnosis.Confidence != "medium" && diagnosis.Confidence != "low" {
 		diagnosis.Confidence = "low"
+	}
+	if !diagnosis.NeedsCodeAgent && (diagnosis.FailureClass == "dependency_missing" || diagnosis.FailureClass == "path_error" || diagnosis.FailureClass == "syntax_error" || diagnosis.FailureClass == "unknown") {
+		diagnosis.NeedsCodeAgent = true
 	}
 	if diagnosis.PatchDiff != "" && !strings.Contains(diagnosis.PatchDiff, "--- a/") {
 		diagnosis.PatchDiff = ""

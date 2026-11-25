@@ -88,3 +88,36 @@ func TestHeuristicDiagnosesSeedMismatchAndProposesPatch(t *testing.T) {
 		t.Fatalf("confidence = %q", diagnosis.Confidence)
 	}
 }
+
+func TestHeuristicExtractsCountClaim(t *testing.T) {
+	paper := domain.Paper{SourcePath: "paper.md", Text: "Claim C1: The experiment yields 25 misclassification errors (tolerance ±0.01).\n"}
+	claims, err := NewHeuristic().ExtractClaims(context.Background(), paper, domain.RepoSummary{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(claims) != 1 || claims[0].Metric != "errors" || claims[0].ExpectedValue != 25 {
+		t.Fatalf("claims = %+v", claims)
+	}
+}
+
+func TestHeuristicExtractsIterationsClaim(t *testing.T) {
+	paper := domain.Paper{SourcePath: "paper.md", Text: "Claim C1: Grokfast reaches 95% validation accuracy in 910 optimization iterations (tolerance ±300).\n"}
+	claims, err := NewHeuristic().ExtractClaims(context.Background(), paper, domain.RepoSummary{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(claims) != 1 || claims[0].Metric != "iterations" || claims[0].ExpectedValue != 910 {
+		t.Fatalf("claims = %+v", claims)
+	}
+}
+
+func TestHeuristicDeduplicatesSameMetricAndValue(t *testing.T) {
+	paper := domain.Paper{SourcePath: "paper.md", Text: "The method reaches 95% accuracy in about 910 optimization iterations.\n\nClaim C1: The method reaches 95% accuracy in 910 optimization iterations (tolerance ±300).\n"}
+	claims, err := NewHeuristic().ExtractClaims(context.Background(), paper, domain.RepoSummary{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(claims) != 1 || claims[0].Tolerance.Abs != 300 || claims[0].ID != "C1" {
+		t.Fatalf("claims = %+v", claims)
+	}
+}

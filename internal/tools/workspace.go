@@ -155,7 +155,7 @@ func copyFile(source, dest string, mode os.FileMode) error {
 
 func shouldSkipRepoDir(name string) bool {
 	switch strings.ToLower(name) {
-	case ".git", ".hg", ".svn", "__pycache__", "node_modules", ".venv", "venv", ".idea", ".vscode", "dist", "build":
+	case ".git", ".hg", ".svn", ".reprolens", "__pycache__", "node_modules", ".venv", "venv", ".idea", ".vscode", "dist", "build":
 		return true
 	default:
 		return false

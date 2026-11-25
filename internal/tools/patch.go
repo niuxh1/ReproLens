@@ -20,8 +20,9 @@ type backupManifest struct {
 }
 
 type backupFile struct {
-	Path string `json:"path"`
-	Mode uint32 `json:"mode"`
+	Path    string `json:"path"`
+	Mode    uint32 `json:"mode"`
+	Existed bool   `json:"existed"`
 }
 
 func (m *PatchManager) Validate(diff string) ([]string, error) {
@@ -32,13 +33,14 @@ func (m *PatchManager) Validate(diff string) ([]string, error) {
 		return nil, fmt.Errorf("patch diff is too large")
 	}
 	lower := strings.ToLower(diff)
-	for _, forbidden := range []string{"new file mode", "deleted file mode", "rename from", "rename to", "git binary patch", "binary files"} {
+	for _, forbidden := range []string{"deleted file mode", "rename from", "rename to", "git binary patch", "binary files"} {
 		if strings.Contains(lower, forbidden) {
 			return nil, fmt.Errorf("unsupported patch operation: %s", forbidden)
 		}
 	}
 	lines := strings.Split(diff, "\n")
 	var paths []string
+	newFiles := map[string]bool{}
 	seen := map[string]bool{}
 	for i := 0; i < len(lines); i++ {
 		if !strings.HasPrefix(lines[i], "--- ") {
@@ -47,20 +49,32 @@ func (m *PatchManager) Validate(diff string) ([]string, error) {
 		if i+1 >= len(lines) || !strings.HasPrefix(lines[i+1], "+++ ") {
 			return nil, fmt.Errorf("malformed patch headers")
 		}
-		oldPath, err := patchHeaderPath(strings.TrimPrefix(lines[i], "--- "))
+		oldPath, oldNull, err := parsePatchHeader(strings.TrimPrefix(lines[i], "--- "))
 		if err != nil {
 			return nil, err
 		}
-		newPath, err := patchHeaderPath(strings.TrimPrefix(lines[i+1], "+++ "))
+		newPath, newNull, err := parsePatchHeader(strings.TrimPrefix(lines[i+1], "+++ "))
 		if err != nil {
 			return nil, err
 		}
-		if oldPath != newPath {
-			return nil, fmt.Errorf("renames are not supported")
+		var rel string
+		switch {
+		case oldNull && newNull:
+			return nil, fmt.Errorf("patch cannot create and delete the same file")
+		case oldNull:
+			rel = newPath
+			newFiles[rel] = true
+		case newNull:
+			return nil, fmt.Errorf("file deletion is not supported")
+		default:
+			if oldPath != newPath {
+				return nil, fmt.Errorf("renames are not supported")
+			}
+			rel = newPath
 		}
-		if !seen[newPath] {
-			seen[newPath] = true
-			paths = append(paths, newPath)
+		if !seen[rel] {
+			seen[rel] = true
+			paths = append(paths, rel)
 		}
 		i++
 	}
@@ -76,11 +90,20 @@ func (m *PatchManager) Validate(diff string) ([]string, error) {
 			return nil, err
 		}
 		info, err := os.Lstat(full)
+		if os.IsNotExist(err) {
+			if !newFiles[rel] {
+				return nil, fmt.Errorf("patch target does not exist: %s", rel)
+			}
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("patch target %s: %w", rel, err)
 		}
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return nil, fmt.Errorf("patch target must be a regular file: %s", rel)
+		}
+		if newFiles[rel] {
+			return nil, fmt.Errorf("new file already exists: %s", rel)
 		}
 	}
 	return paths, nil
@@ -128,6 +151,10 @@ func (m *PatchManager) Backup(files []string) (string, error) {
 			return "", err
 		}
 		info, err := os.Stat(full)
+		if os.IsNotExist(err) {
+			manifest.Files = append(manifest.Files, backupFile{Path: rel, Mode: 0o644, Existed: false})
+			continue
+		}
 		if err != nil {
 			return "", err
 		}
@@ -135,7 +162,7 @@ func (m *PatchManager) Backup(files []string) (string, error) {
 		if err := copyFile(full, dest, info.Mode().Perm()); err != nil {
 			return "", err
 		}
-		manifest.Files = append(manifest.Files, backupFile{Path: rel, Mode: uint32(info.Mode().Perm())})
+		manifest.Files = append(manifest.Files, backupFile{Path: rel, Mode: uint32(info.Mode().Perm()), Existed: true})
 	}
 	b, err := json.Marshal(manifest)
 	if err != nil {
@@ -157,11 +184,15 @@ func (m *PatchManager) Restore(backupDir string) error {
 		return err
 	}
 	for _, f := range manifest.Files {
-		source := filepath.Join(backupDir, "files", filepath.FromSlash(f.Path))
 		dest, err := m.resolve(f.Path)
 		if err != nil {
 			return err
 		}
+		if !f.Existed {
+			_ = os.Remove(dest)
+			continue
+		}
+		source := filepath.Join(backupDir, "files", filepath.FromSlash(f.Path))
 		if err := copyFile(source, dest, os.FileMode(f.Mode)); err != nil {
 			return err
 		}
@@ -180,6 +211,9 @@ func (m *PatchManager) resolve(rel string) (string, error) {
 	if len(clean) >= 2 && clean[1] == ':' {
 		return "", fmt.Errorf("drive-qualified path not allowed: %q", rel)
 	}
+	if clean == ".git" || strings.HasPrefix(clean, ".git/") || clean == ".reprolens" || strings.HasPrefix(clean, ".reprolens/") {
+		return "", fmt.Errorf("patch cannot modify internal workspace metadata: %s", rel)
+	}
 	full := filepath.Join(m.Workspace, filepath.FromSlash(clean))
 	root, err := filepath.Abs(m.Workspace)
 	if err != nil {
@@ -193,16 +227,13 @@ func (m *PatchManager) resolve(rel string) (string, error) {
 	if err != nil || within == ".." || strings.HasPrefix(within, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("patch path escapes workspace: %q", rel)
 	}
-	if strings.HasPrefix(clean, ".reprolens/") || clean == ".reprolens" {
-		return "", fmt.Errorf("patch cannot modify internal workspace metadata")
-	}
 	return full, nil
 }
 
-func patchHeaderPath(header string) (string, error) {
+func parsePatchHeader(header string) (string, bool, error) {
 	header = strings.TrimSpace(header)
 	if header == "/dev/null" {
-		return "", fmt.Errorf("file creation/deletion is not supported")
+		return "", true, nil
 	}
 	if i := strings.IndexByte(header, '\t'); i >= 0 {
 		header = header[:i]
@@ -211,7 +242,7 @@ func patchHeaderPath(header string) (string, error) {
 		header = header[2:]
 	}
 	if header == "" || strings.Contains(header, "\\") {
-		return "", fmt.Errorf("invalid patch path %q", header)
+		return "", false, fmt.Errorf("invalid patch path %q", header)
 	}
-	return header, nil
+	return header, false, nil
 }

@@ -126,3 +126,36 @@ Bundled project `accuracy_demo`:
 - Automatic installation of arbitrary dependencies.
 - Automatic judgment of scientific validity beyond a declared metric and tolerance.
 - Multi-claim parallel execution; plans run sequentially in v1.
+## 8. CodeAgent Extension
+
+ReproLens delegates complex implementation and repair tasks to a separate code tool rather than implementing paper algorithms inside the orchestrator.
+
+- Interface: `internal/codeagent.Agent`.
+- Implementations: deterministic Mock and configurable CLI adapter.
+- CLI presets: Claude Code, Codex CLI, Gemini CLI, or a custom command.
+- The CodeAgent works only in a disposable workspace copy.
+- It returns a git-compatible diff, files, logs, and duration.
+- PatchManager validates the diff and requires human approval.
+- The code tool cannot change the expected value, metric, data split, tolerance, or verdict.
+
+## 9. GPU and Deployment Channels
+
+GPU is a runner capability recorded in run evidence.
+
+- Local runner: sets `CUDA_VISIBLE_DEVICES` and `NVIDIA_VISIBLE_DEVICES`.
+- Docker runner: adds `--gpus all` and GPU environment variables.
+- SSH runner: deploys a tar.gz to a remote host and runs a generated script.
+- Platform runner: selects a rental offer by GPU/VRAM/price, uploads an artifact, submits a job, polls status, and fetches logs.
+- SSH was validated against a non-root dropbear server in WSL2.
+- The Colab-style platform was validated with an in-process mock implementing the documented HTTP contract.
+
+## 10. Real-Case Evidence
+
+A 2024 Grokfast official-code case was reproduced on CUDA:
+
+- Paper: arXiv 2405.20233.
+- Claim: about 910 optimization iterations to 95% validation accuracy, tolerance ±300.
+- Observed: 900 iterations.
+- Verdict: PASS.
+- Runtime: 43 seconds on an RTX 4060 Laptop.
+- Evidence: `examples/grokfast/report.md` and the ZIP package under `examples/grokfast/evidence/`.

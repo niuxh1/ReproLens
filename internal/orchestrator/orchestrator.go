@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"reprolens/internal/agent"
+	"reprolens/internal/codeagent"
 	"reprolens/internal/domain"
 	"reprolens/internal/store"
 	"reprolens/internal/tools"
@@ -30,10 +31,11 @@ type CreateInput struct {
 }
 
 type Orchestrator struct {
-	store    store.Store
-	analyzer agent.Analyzer
-	runner   tools.Runner
-	dataDir  string
+	store     store.Store
+	analyzer  agent.Analyzer
+	runner    tools.Runner
+	dataDir   string
+	codeAgent codeagent.Agent
 
 	mu   sync.Mutex
 	jobs map[string]context.CancelFunc
@@ -44,6 +46,10 @@ func New(s store.Store, analyzer agent.Analyzer, runner tools.Runner, dataDir st
 		store: s, analyzer: analyzer, runner: runner, dataDir: dataDir,
 		jobs: map[string]context.CancelFunc{},
 	}
+}
+
+func (o *Orchestrator) SetCodeAgent(agent codeagent.Agent) {
+	o.codeAgent = agent
 }
 
 func (o *Orchestrator) CreateProject(ctx context.Context, input CreateInput) (*domain.Project, error) {

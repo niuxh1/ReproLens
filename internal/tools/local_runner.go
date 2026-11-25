@@ -8,9 +8,13 @@ import (
 	"time"
 )
 
-type LocalRunner struct{}
+type LocalRunner struct {
+	EnableGPU bool
+}
 
 func NewLocalRunner() *LocalRunner { return &LocalRunner{} }
+
+func NewLocalRunnerWithGPU(enabled bool) *LocalRunner { return &LocalRunner{EnableGPU: enabled} }
 
 func (r *LocalRunner) Name() string { return "local (unsafe)" }
 
@@ -30,8 +34,12 @@ func (r *LocalRunner) Execute(ctx context.Context, req ExecutionRequest) (Execut
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	env := buildExecutionEnv(req)
+	if r.EnableGPU {
+		env["CUDA_VISIBLE_DEVICES"] = "0"
+		env["NVIDIA_VISIBLE_DEVICES"] = "all"
+	}
 	result := ExecutionResult{
-		Runner: "local (unsafe)", Command: req.Command, WorkDir: req.WorkDir, Env: env,
+		Runner: "local (unsafe)", Command: req.Command, WorkDir: req.WorkDir, Env: env, GPU: r.EnableGPU,
 		StartedAt: time.Now().UTC(),
 	}
 	cmd := exec.CommandContext(runCtx, args[0], args[1:]...)

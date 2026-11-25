@@ -130,27 +130,36 @@ type Run struct {
 	Metric         *Metric           `json:"metric,omitempty"`
 	FailureClass   string            `json:"failure_class,omitempty"`
 	FailureSummary string            `json:"failure_summary,omitempty"`
+	GPU            bool              `json:"gpu,omitempty"`
+	Provider       string            `json:"provider,omitempty"`
+	RemoteJobID    string            `json:"remote_job_id,omitempty"`
+	OfferID        string            `json:"offer_id,omitempty"`
 }
 
 type Diagnosis struct {
-	FailureClass string `json:"failure_class"`
-	RootCause    string `json:"root_cause"`
-	Confidence   string `json:"confidence"`
-	PatchDiff    string `json:"patch_diff,omitempty"`
-	Explanation  string `json:"explanation,omitempty"`
+	FailureClass   string `json:"failure_class"`
+	RootCause      string `json:"root_cause"`
+	Confidence     string `json:"confidence"`
+	PatchDiff      string `json:"patch_diff,omitempty"`
+	Explanation    string `json:"explanation,omitempty"`
+	NeedsCodeAgent bool   `json:"needs_code_agent,omitempty"`
 }
 
 type PatchProposal struct {
-	ID         string     `json:"patch_id"`
-	RunID      string     `json:"run_id"`
-	ClaimID    string     `json:"claim_id"`
-	Diagnosis  Diagnosis  `json:"diagnosis"`
-	Diff       string     `json:"diff"`
-	Files      []string   `json:"files"`
-	Status     string     `json:"status"`
-	CreatedAt  time.Time  `json:"created_at"`
-	AppliedAt  *time.Time `json:"applied_at,omitempty"`
-	ApprovedBy string     `json:"approved_by,omitempty"`
+	ID               string     `json:"patch_id"`
+	RunID            string     `json:"run_id"`
+	ClaimID          string     `json:"claim_id"`
+	Diagnosis        Diagnosis  `json:"diagnosis"`
+	Diff             string     `json:"diff"`
+	Files            []string   `json:"files"`
+	Status           string     `json:"status"`
+	CreatedAt        time.Time  `json:"created_at"`
+	AppliedAt        *time.Time `json:"applied_at,omitempty"`
+	ApprovedBy       string     `json:"approved_by,omitempty"`
+	CodeAgent        string     `json:"code_agent,omitempty"`
+	CodeAgentVersion string     `json:"code_agent_version,omitempty"`
+	CodeAgentLogPath string     `json:"code_agent_log_path,omitempty"`
+	CodeAgentSummary string     `json:"code_agent_summary,omitempty"`
 }
 
 type Verdict string

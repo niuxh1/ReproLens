@@ -15,10 +15,17 @@ type DockerRunner struct {
 	Memory       string
 	CPUs         string
 	PIDs         int
+	EnableGPU    bool
 }
 
 func NewDockerRunner() *DockerRunner {
 	return &DockerRunner{DockerBinary: "docker", Network: "none", Memory: "2g", CPUs: "2", PIDs: 256}
+}
+
+func NewDockerRunnerWithGPU(enabled bool) *DockerRunner {
+	r := NewDockerRunner()
+	r.EnableGPU = enabled
+	return r
 }
 
 func (d *DockerRunner) Name() string { return "docker (isolated)" }
@@ -64,6 +71,9 @@ func (d *DockerRunner) BuildArgs(req ExecutionRequest) ([]string, error) {
 		"-e", "REPROLENS_SEED=" + strconv.Itoa(req.Seed), "-e", "PYTHONHASHSEED=" + strconv.Itoa(req.Seed),
 		"-e", "PYTHONUNBUFFERED=1",
 	}
+	if d.EnableGPU {
+		out = append(out, "--gpus", "all", "-e", "NVIDIA_VISIBLE_DEVICES=all", "-e", "CUDA_VISIBLE_DEVICES=0")
+	}
 	for key, value := range req.Env {
 		out = append(out, "-e", key+"="+value)
 	}
@@ -85,7 +95,7 @@ func (d *DockerRunner) Execute(ctx context.Context, req ExecutionRequest) (Execu
 	defer cancel()
 	env := buildExecutionEnv(req)
 	result := ExecutionResult{
-		Runner: "docker (isolated)", Command: req.Command, Image: req.Image, WorkDir: req.WorkDir, Env: env,
+		Runner: "docker (isolated)", Command: req.Command, Image: req.Image, WorkDir: req.WorkDir, Env: env, GPU: d.EnableGPU,
 		StartedAt: time.Now().UTC(),
 	}
 	cmd := exec.CommandContext(runCtx, d.DockerBinary, args...)

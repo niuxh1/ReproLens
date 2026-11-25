@@ -107,3 +107,14 @@ Files: `internal/httpapi/server.go`, `internal/httpapi/server_test.go`, `interna
 - Run `go run ./cmd/reprolens demo`.
 - Start the server and exercise the dashboard/API.
 - Audit the implementation against the spec.
+## Task 12: GPU, remote deployment, and CodeAgent extensions
+
+- Add GPU flags to local/Docker runners.
+- Add SSH runner with archive upload and remote run script.
+- Add Colab-style PlatformRunner with automatic offer selection and polling.
+- Add CodeAgent interface, mock, and configurable CLI adapter.
+- Add patch support for new files.
+- Wire CodeAgent into the failure path after diagnosis.
+- Add config and CLI demos: `colab-demo`, `ssh-demo`, `mock-colab`.
+- Add WSL SSH integration test (environment-gated).
+- Add real Grokfast 2024 CUDA case and evidence package.

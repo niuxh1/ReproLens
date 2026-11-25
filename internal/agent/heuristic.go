@@ -17,14 +17,15 @@ type Heuristic struct{}
 func NewHeuristic() *Heuristic { return &Heuristic{} }
 
 var (
-	claimLineRE = regexp.MustCompile(`(?i)^\s*claim\s+([A-Za-z0-9_-]+)\s*[:：]\s*(.+)$`)
-	metricRE    = regexp.MustCompile(`(?i)\b(accuracy|f1(?:[-\s]?score)?|auc|precision|recall|loss|mae|rmse|rouge(?:-l)?|bleu)\b[^0-9+\-.]{0,24}([-+]?(?:\d+(?:\.\d*)?|\.\d+))`)
-	toleranceRE = regexp.MustCompile(`(?i)(?:tolerance\s*[:=]?\s*(?:±|\+/-)?|±|\+/-)\s*([0-9]*\.?[0-9]+)`)
-	runLineRE   = regexp.MustCompile(`(?i)^\s*(?:run|command)\s*[:：]\s*` + "`?" + `\s*(.+?)\s*` + "`?" + `\s*$`)
-	codeCmdRE   = regexp.MustCompile(`(?i)^\s*(python(?:3)?|pytest|rscript|bash|sh|go\s+test)\b.+$`)
-	seedCmdRE   = regexp.MustCompile(`(?i)--seed\s+(\d+)`)
-	seedTextRE  = regexp.MustCompile(`(?i)\bseed\s*[:=]?\s*(\d+)\b`)
-	seedErrRE   = regexp.MustCompile(`(?i)seed\s*mismatch[^\n]*?expected\s+(\d+)[^\n]*?got\s+(\d+)`)
+	claimLineRE    = regexp.MustCompile(`(?i)^\s*claim\s+([A-Za-z0-9_-]+)\s*[:：]\s*(.+)$`)
+	metricBeforeRE = regexp.MustCompile(`(?i)([-+]?(?:\d+(?:\.\d*)?|\.\d+))\s+(?:[A-Za-z-]+\s+){0,3}(errors?|tasks?|papers?|counts?|iterations?)\b`)
+	metricRE       = regexp.MustCompile(`(?i)\b(accuracy|f1(?:[-\s]?score)?|auc|precision|recall|loss|mae|rmse|rouge(?:-l)?|bleu|errors|error|count|tasks|papers)\b[^0-9+\-.]{0,24}([-+]?(?:\d+(?:\.\d*)?|\.\d+))`)
+	toleranceRE    = regexp.MustCompile(`(?i)(?:tolerance\s*[:=]?\s*(?:±|\+/-)?|±|\+/-)\s*([0-9]*\.?[0-9]+)`)
+	runLineRE      = regexp.MustCompile(`(?i)^\s*(?:run|command)\s*[:：]\s*` + "`?" + `\s*(.+?)\s*` + "`?" + `\s*$`)
+	codeCmdRE      = regexp.MustCompile(`(?i)^\s*(python(?:3)?|pytest|rscript|bash|sh|go\s+test)\b.+$`)
+	seedCmdRE      = regexp.MustCompile(`(?i)--seed\s+(\d+)`)
+	seedTextRE     = regexp.MustCompile(`(?i)\bseed\s*[:=]?\s*(\d+)\b`)
+	seedErrRE      = regexp.MustCompile(`(?i)seed\s*mismatch[^\n]*?expected\s+(\d+)[^\n]*?got\s+(\d+)`)
 )
 
 func (h *Heuristic) ExtractClaims(_ context.Context, paper domain.Paper, _ domain.RepoSummary) ([]domain.Claim, error) {
@@ -42,8 +43,15 @@ func (h *Heuristic) ExtractClaims(_ context.Context, paper domain.Paper, _ domai
 			id = strings.ToUpper(m[1])
 			text = strings.TrimSpace(m[2])
 		}
-		metricMatch := metricRE.FindStringSubmatch(text)
-		if metricMatch == nil {
+		metricName := ""
+		metricValue := ""
+		if before := metricBeforeRE.FindStringSubmatch(text); before != nil {
+			metricValue = before[1]
+			metricName = before[2]
+		} else if after := metricRE.FindStringSubmatch(text); after != nil {
+			metricValue = after[2]
+			metricName = after[1]
+		} else {
 			continue
 		}
 		if id == "" {
@@ -53,7 +61,7 @@ func (h *Heuristic) ExtractClaims(_ context.Context, paper domain.Paper, _ domai
 			id = fmt.Sprintf("%s-%d", id, i+1)
 		}
 		seen[id] = true
-		value, err := strconv.ParseFloat(metricMatch[2], 64)
+		value, err := strconv.ParseFloat(metricValue, 64)
 		if err != nil {
 			continue
 		}
@@ -66,20 +74,44 @@ func (h *Heuristic) ExtractClaims(_ context.Context, paper domain.Paper, _ domai
 		claims = append(claims, domain.Claim{
 			ID:            id,
 			Text:          text,
-			Metric:        normalizeMetric(metricMatch[1]),
+			Metric:        normalizeMetric(metricName),
 			ExpectedValue: value,
 			Tolerance:     tol,
 			Source: domain.ClaimSource{
 				Path:  paper.SourcePath,
 				Line:  i + 1,
-				Quote: text,
+				Quote: line,
 			},
 		})
 	}
 	if len(claims) == 0 {
 		return nil, fmt.Errorf("no measurable claim found in paper")
 	}
-	return claims, nil
+	return dedupeClaims(claims), nil
+}
+
+func dedupeClaims(claims []domain.Claim) []domain.Claim {
+	out := make([]domain.Claim, 0, len(claims))
+	index := map[string]int{}
+	for _, claim := range claims {
+		key := claim.Metric + ":" + strconv.FormatFloat(claim.ExpectedValue, 'g', -1, 64)
+		existing, ok := index[key]
+		if !ok {
+			index[key] = len(out)
+			out = append(out, claim)
+			continue
+		}
+		current := out[existing]
+		explicitNew := strings.HasPrefix(strings.ToLower(strings.TrimSpace(claim.Source.Quote)), "claim ")
+		explicitOld := strings.HasPrefix(strings.ToLower(strings.TrimSpace(current.Source.Quote)), "claim ")
+		if claim.Tolerance.Abs > current.Tolerance.Abs || (claim.Tolerance.Abs == current.Tolerance.Abs && explicitNew && !explicitOld) {
+			if explicitNew && !explicitOld {
+				claim.ID = current.ID
+			}
+			out[existing] = claim
+		}
+	}
+	return out
 }
 
 func (h *Heuristic) BuildPlan(_ context.Context, claim domain.Claim, paper domain.Paper, repo domain.RepoSummary) (*domain.ExperimentPlan, error) {
@@ -147,13 +179,15 @@ func (h *Heuristic) Diagnose(_ context.Context, run domain.Run, _ domain.RepoSum
 	lower := strings.ToLower(output)
 	switch {
 	case strings.Contains(lower, "modulenotfounderror") || strings.Contains(lower, "no module named"):
-		return &domain.Diagnosis{FailureClass: "dependency_missing", RootCause: "A required Python package is not available in the runtime.", Confidence: "high", Explanation: "Pin the dependency in the project environment; no automatic patch is proposed."}, nil
+		return &domain.Diagnosis{FailureClass: "dependency_missing", RootCause: "A required Python package is not available in the runtime.", Confidence: "high", Explanation: "Pin the dependency in the project environment; no automatic patch is proposed.", NeedsCodeAgent: true}, nil
 	case strings.Contains(lower, "filenotfounderror") || strings.Contains(lower, "no such file or directory"):
-		return &domain.Diagnosis{FailureClass: "path_error", RootCause: "The command references a missing file or directory.", Confidence: "medium", Explanation: "Check the workspace-relative data and configuration paths before patching."}, nil
+		return &domain.Diagnosis{FailureClass: "path_error", RootCause: "The command references a missing file or directory.", Confidence: "medium", Explanation: "Check the workspace-relative data and configuration paths before patching.", NeedsCodeAgent: true}, nil
+	case strings.Contains(lower, "notimplementederror") || strings.Contains(lower, "not implemented"):
+		return &domain.Diagnosis{FailureClass: "missing_implementation", RootCause: "The experiment requires an implementation that is not present in the repository.", Confidence: "high", Explanation: "Delegate the missing implementation to a configured code agent.", NeedsCodeAgent: true}, nil
 	case strings.Contains(lower, "syntaxerror"):
-		return &domain.Diagnosis{FailureClass: "syntax_error", RootCause: "The repository contains a syntax error.", Confidence: "high", Explanation: "No automatic patch is proposed; inspect the reported source location."}, nil
+		return &domain.Diagnosis{FailureClass: "syntax_error", RootCause: "The repository contains a syntax error.", Confidence: "high", Explanation: "No automatic patch is proposed; inspect the reported source location.", NeedsCodeAgent: true}, nil
 	default:
-		return &domain.Diagnosis{FailureClass: "unknown", RootCause: "The failure did not match a supported deterministic pattern.", Confidence: "low", Explanation: "Inspect the preserved stdout/stderr and run manifest."}, nil
+		return &domain.Diagnosis{FailureClass: "unknown", RootCause: "The failure did not match a supported deterministic pattern.", Confidence: "low", Explanation: "Inspect the preserved stdout/stderr and run manifest.", NeedsCodeAgent: true}, nil
 	}
 }
 
@@ -193,7 +227,7 @@ func findSeedPatch(workspace string, got, want int) (string, string, error) {
 			return walkErr
 		}
 		if d.IsDir() {
-			if d.Name() == ".git" || d.Name() == "data" {
+			if d.Name() == ".git" || d.Name() == "data" || d.Name() == ".reprolens" {
 				return filepath.SkipDir
 			}
 			return nil
