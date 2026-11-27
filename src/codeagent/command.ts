@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { spawn } from 'node:child_process';
@@ -18,6 +19,37 @@ interface ProcessResult {
   code: number;
   stdout: string;
   stderr: string;
+}
+
+export interface CommandInspection {
+  command: string;
+  executable: string;
+  available: boolean;
+  path?: string;
+  version?: string;
+}
+
+export async function inspectCommand(command: string): Promise<CommandInspection> {
+  const args = splitCommandLine(command.trim());
+  const executable = args[0] ?? '';
+  if (!executable) return { command, executable: '', available: false };
+  if (executable.includes('/') || executable.includes('\\')) {
+    try {
+      await access(executable, constants.X_OK);
+      return { command, executable, available: true, path: executable };
+    } catch {
+      return { command, executable, available: false };
+    }
+  }
+  try {
+    const locator = process.platform === 'win32' ? 'where.exe' : 'which';
+    const result = await execFileAsync(locator, [executable], { timeout: 5000, windowsHide: true });
+    const path = result.stdout.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+    const version = path ? await inspectVersion(path) : undefined;
+    return { command, executable, available: Boolean(path), ...(path ? { path } : {}), ...(version ? { version } : {}) };
+  } catch {
+    return { command, executable, available: false };
+  }
 }
 
 export class CommandAgent implements CodeAgent {
@@ -61,6 +93,7 @@ export class CommandAgent implements CodeAgent {
         REPROLENS_CODE_PROMPT_FILE: promptPath,
         REPROLENS_CODE_WORKSPACE: workDir,
       },
+      ...(task.onOutput ? { onOutput: task.onOutput } : {}),
     });
     const durationMs = Date.now() - started;
     const logPath = join(evidenceDir, 'agent.log');
@@ -138,7 +171,10 @@ async function runShell(dir: string, command: string, timeoutMs: number): Promis
   return runProcess('sh', ['-c', command], { cwd: dir, timeoutMs });
 }
 
-function runProcess(binary: string, args: string[], options: { cwd: string; timeoutMs: number; stdin?: string; env?: NodeJS.ProcessEnv }): Promise<ProcessResult> {
+function runProcess(binary: string, args: string[], options: {
+  cwd: string; timeoutMs: number; stdin?: string; env?: NodeJS.ProcessEnv;
+  onOutput?: (stream: 'stdout' | 'stderr', text: string) => void;
+}): Promise<ProcessResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(binary, args, { cwd: options.cwd, env: options.env ?? process.env, windowsHide: true });
     let stdout = '';
@@ -148,8 +184,8 @@ function runProcess(binary: string, args: string[], options: { cwd: string; time
       timedOut = true;
       child.kill('SIGKILL');
     }, options.timeoutMs);
-    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
-    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+    child.stdout.on('data', (chunk: Buffer) => { const text = chunk.toString(); stdout += text; options.onOutput?.('stdout', text); });
+    child.stderr.on('data', (chunk: Buffer) => { const text = chunk.toString(); stderr += text; options.onOutput?.('stderr', text); });
     child.on('error', (error) => {
       clearTimeout(timer);
       reject(error);
@@ -166,6 +202,14 @@ function runProcess(binary: string, args: string[], options: { cwd: string; time
   });
 }
 
+async function inspectVersion(executable: string): Promise<string | undefined> {
+  try {
+    const result = await execFileAsync(executable, ['--version'], { timeout: 5000, windowsHide: true });
+    return `${result.stdout}\n${result.stderr}`.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+  } catch {
+    return undefined;
+  }
+}
 function buildPrompt(task: CodeAgentTask): string {
   const visuals = (task.paper.pages ?? []).map((page) => `page ${page.page_number}: ${page.image_path ?? 'text only'}; captions=${page.caption_candidates.join(' | ') || 'none'}`).join('\n');
   return [

@@ -1,4 +1,4 @@
-import { buildExecutionEnv, runProcess, validateExecutionCommand, writeRunEvidence, type ExecutionRequest, type ExecutionResult, type Runner } from './runner.js';
+import { buildExecutionEnv, resolveWorkDir, runProcess, validateExecutionCommand, writeRunEvidence, type ExecutionRequest, type ExecutionResult, type Runner } from './runner.js';
 
 export interface DockerRunnerOptions {
   dockerBinary?: string;
@@ -28,14 +28,14 @@ export class DockerRunner implements Runner {
 
   name(): string { return 'docker (isolated)'; }
 
-  buildArgs(request: ExecutionRequest): string[] {
+  buildArgs(request: ExecutionRequest, containerWorkDir = '/workspace'): string[] {
     const args = validateExecutionCommand(request.command);
     const image = request.image || 'python:3.11-slim';
     return [
       'run', '--rm', '--network', this.network, '--memory', this.memory, '--cpus', this.cpus,
       '--pids-limit', String(this.pids), '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
       '--read-only', '--tmpfs', '/tmp:rw,noexec,nosuid,size=64m',
-      '-v', `${request.workspace}:/workspace`, '-w', '/workspace',
+      '-v', `${request.workspace}:/workspace`, '-w', containerWorkDir, '--init',
       '-e', `REPROLENS_SEED=${request.seed}`, '-e', `PYTHONHASHSEED=${request.seed}`, '-e', 'PYTHONUNBUFFERED=1',
       ...(this.enableGPU ? ['--gpus', 'all', '-e', 'NVIDIA_VISIBLE_DEVICES=all', '-e', 'CUDA_VISIBLE_DEVICES=0'] : []),
       ...Object.entries(request.env ?? {}).flatMap(([key, value]) => ['-e', `${key}=${value}`]),
@@ -45,13 +45,15 @@ export class DockerRunner implements Runner {
   }
 
   async execute(request: ExecutionRequest): Promise<ExecutionResult> {
-    const args = this.buildArgs(request);
+    const { containerPath } = await resolveWorkDir(request.workspace, request.workDir);
+    const args = this.buildArgs(request, containerPath);
     const env = buildExecutionEnv(request);
     const outcome = await runProcess(this.dockerBinary, args, {
       cwd: request.workspace,
       env: { ...process.env, ...env },
       timeoutMs: request.timeoutMs > 0 ? request.timeoutMs : 120_000,
       signal: request.signal,
+      onOutput: request.onOutput,
     });
     const result: ExecutionResult = {
       runner: this.name(),

@@ -20,7 +20,7 @@ afterEach(async () => {
 
 function baseConfig(): Config {
   return {
-    addr: '127.0.0.1:8080', dataDir: '.', runner: 'auto', enableGPU: false,
+    addr: '127.0.0.1:8080', dataDir: '.', allowRemote: false, runner: 'auto', enableGPU: false,
     codeAgent: { type: 'none', command: '', timeoutMs: 600000, runAcceptance: false },
     llm: { baseURL: 'http://127.0.0.1:8788/v1', apiKey: 'secret-key-1234', model: 'deepseek-v4.1-flash', timeoutMs: 60000, vision: true },
     remote: { host: '', port: 22, identity: '', baseDir: '/tmp/reprolens' },
@@ -44,6 +44,9 @@ describe('runtime settings API', () => {
     const initial = await app.inject({ method: 'GET', url: '/api/v1/settings' });
     expect(initial.statusCode).toBe(200);
     expect(initial.json().llm.apiKey).toMatch(/^••••••••/);
+    const codeAgent = await app.inject({ method: 'POST', url: '/api/v1/settings/test-code-agent', payload: {} });
+    expect(codeAgent.statusCode).toBe(200);
+    expect(codeAgent.json()).toMatchObject({ configured: false, available: false, type: 'none' });
     const updated = await app.inject({ method: 'PUT', url: '/api/v1/settings', payload: { runner: 'local', enableGPU: true, llm: { model: 'test-model', timeoutMs: 1000, vision: false } } });
     expect(updated.statusCode).toBe(200);
     expect(updated.json()).toMatchObject({ runner: 'local', enableGPU: true, llm: { model: 'test-model', vision: false } });
@@ -55,5 +58,13 @@ describe('runtime settings API', () => {
     const { app } = await setup();
     const response = await app.inject({ method: 'PUT', url: '/api/v1/settings', payload: { llm: { baseURL: 'not-a-url' } } });
     expect(response.statusCode).toBe(400);
+  });
+
+  it('rejects unknown fields and invalid timeout values', async () => {
+    const { app } = await setup();
+    const unknown = await app.inject({ method: 'PUT', url: '/api/v1/settings', payload: { mystery: true } });
+    expect(unknown.statusCode).toBe(400);
+    const invalid = await app.inject({ method: 'PUT', url: '/api/v1/settings', payload: { llm: { timeoutMs: -1 } } });
+    expect(invalid.statusCode).toBe(400);
   });
 });

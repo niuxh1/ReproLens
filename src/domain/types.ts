@@ -9,6 +9,11 @@ export interface ClaimSource {
   path: string;
   line: number;
   quote?: string;
+  page_number?: number;
+  table?: string;
+  figure?: string;
+  provenance?: 'verified' | 'unverified' | 'mismatch';
+  provenance_reason?: string;
 }
 
 export interface Claim {
@@ -76,6 +81,30 @@ export interface MetricSource {
   key?: string;
 }
 
+export type VerificationOperator = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'between';
+
+export interface VerificationCriterion {
+  id: string;
+  metric: string;
+  operator: VerificationOperator;
+  expected?: number;
+  lower?: number;
+  upper?: number;
+  tolerance: Tolerance;
+  metric_source: MetricSource;
+}
+
+export interface CriterionResult {
+  criterion_id: string;
+  metric: string;
+  operator: VerificationOperator;
+  expected?: number;
+  lower?: number;
+  upper?: number;
+  observed?: number;
+  verdict: Verdict;
+  rule: string;
+}
 export interface ExperimentPlan {
   id: string;
   claim_id: string;
@@ -87,6 +116,8 @@ export interface ExperimentPlan {
   expected_value: number;
   tolerance: Tolerance;
   metric_source: MetricSource;
+  criteria?: VerificationCriterion[];
+  aggregation?: 'all' | 'any';
   notes?: string;
   confirmed: boolean;
 }
@@ -99,6 +130,8 @@ export interface Metric {
 
 export interface Run {
   run_id: string;
+  claim_id?: string;
+  plan_id?: string;
   attempt: number;
   runner: string;
   command: string;
@@ -113,12 +146,21 @@ export interface Run {
   stderr_path?: string;
   stdout?: string;
   stderr?: string;
+  stdout_sha256?: string;
+  stderr_sha256?: string;
+  stdout_truncated?: boolean;
+  stderr_truncated?: boolean;
   env?: Record<string, string>;
   artifact_paths?: string[];
   metric?: Metric;
   failure_class?: string;
   failure_summary?: string;
   gpu?: boolean;
+  requested_seed?: number;
+  effective_seed?: number;
+  seed_source?: 'command' | 'stdout' | 'environment';
+  gpu_detected?: boolean;
+  gpu_device?: string;
   provider?: string;
   remote_job_id?: string;
 }
@@ -161,8 +203,31 @@ export interface Verification {
   verdict: Verdict;
   rule: string;
   evidence?: string[];
+  criteria_results?: CriterionResult[];
+  rule_version?: number;
   note?: string;
   verified_at: Timestamp;
+}
+
+export type ReproducibilityGrade = 'A' | 'B' | 'C' | 'D';
+
+export interface ReproducibilityFactor {
+  id: string;
+  label: string;
+  score: number;
+  max: number;
+  status: 'pass' | 'warn' | 'fail';
+  detail: string;
+}
+
+export interface ReproducibilityAssessment {
+  score: number;
+  grade: ReproducibilityGrade;
+  verdict?: Verdict;
+  factors: ReproducibilityFactor[];
+  caps: string[];
+  generated_at: Timestamp;
+  policy_version: number;
 }
 
 export interface EvidenceRef {
@@ -186,6 +251,10 @@ export interface Report {
   summary: string;
   markdown: string;
   agent_summary?: AgentReportSummary;
+  assessment?: ReproducibilityAssessment;
+  aggregate_verdict?: Verdict;
+  aggregate_rule?: string;
+  verifications?: Verification[];
   package_path?: string;
   evidence?: EvidenceRef[];
 }
@@ -204,8 +273,36 @@ export function budgetWithDefaults(budget: Partial<Budget> | undefined): Budget 
   };
 }
 
+export type OperationKind =
+  | 'start'
+  | 'select_claims'
+  | 'confirm_plan'
+  | 'approve_patch'
+  | 'reject_patch'
+  | 'stop'
+  | 'regenerate_report';
+
+export type OperationStatus = 'running' | 'succeeded' | 'failed' | 'abandoned';
+
+export interface Operation {
+  id: string;
+  project_id: string;
+  kind: OperationKind;
+  status: OperationStatus;
+  idempotency_key?: string;
+  request_hash?: string;
+  lease_owner?: string;
+  lease_expires_at?: Timestamp;
+  heartbeat_at?: Timestamp;
+  result_revision?: number;
+  error?: string;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  finished_at?: Timestamp;
+}
 export interface Project {
   id: string;
+  revision?: number;
   name: string;
   state: import('./state.js').State;
   paper_path: string;

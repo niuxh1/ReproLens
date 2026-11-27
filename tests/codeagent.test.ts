@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CommandAgent } from '../src/codeagent/command.js';
+import { CommandAgent, inspectCommand } from '../src/codeagent/command.js';
 import { Workspace } from '../src/tools/workspace.js';
 import { PatchManager } from '../src/tools/patch.js';
 import type { CodeAgentTask } from '../src/codeagent/code-agent.js';
@@ -13,6 +13,12 @@ afterEach(async () => {
 });
 
 describe('command code agent', () => {
+  it('inspects whether a configured executable exists without running it', async () => {
+    await expect(inspectCommand('node')).resolves.toMatchObject({ available: true, executable: 'node' });
+    expect((await inspectCommand('node')).version).toMatch(/^v?\d+/);
+    await expect(inspectCommand('reprolens-definitely-missing-cli')).resolves.toMatchObject({ available: false });
+  });
+
   it('works in an isolated copy and returns a git-compatible diff', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'reprolens-codeagent-'));
     dirs.push(dir);
@@ -35,7 +41,9 @@ describe('command code agent', () => {
       run: { run_id: 'run_1', attempt: 1, runner: 'local', command: 'python run.py', work_dir: '.', status: 'failed', exit_code: 1, started_at: new Date().toISOString(), finished_at: new Date().toISOString(), duration_ms: 1, stderr: 'missing implementation' },
       diagnosis: { failure_class: 'missing_implementation', root_cause: 'missing', confidence: 'high', needs_code_agent: true },
     };
-    const result = await agent.propose(task);
+    const streamed: string[] = [];
+    const result = await agent.propose({ ...task, onOutput: (_stream, text) => streamed.push(text) });
+    expect(streamed.join('')).toContain('prompt_received=');
     expect(result.diff).toContain("+print('accuracy=0.81')");
     expect(result.diff).toContain('+def solve():');
     expect(result.files.sort()).toEqual(['implementation.py', 'run.py']);

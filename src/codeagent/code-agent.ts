@@ -11,6 +11,7 @@ export interface CodeAgentTask {
   plan: ExperimentPlan;
   run: Run;
   diagnosis: Diagnosis;
+  onOutput?: (stream: 'stdout' | 'stderr', text: string) => void;
 }
 
 export interface CodeAgentResult {

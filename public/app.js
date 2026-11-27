@@ -1,10 +1,10 @@
-import { icon, mountIcons } from './icons.js';
+import { icon, mountIcons } from './icons.js?v=0.3.0';
 
 const state = {
   view: 'overview', projects: [], current: null, options: null, settings: null,
   events: [], stream: null, pollTimer: null, commandIndex: 0, commands: [],
   filter: 'all', projectTab: 'transcript', settingsTab: 'model', sidebarCollapsed: false, autoscroll: true,
-
+  projectsStatus: 'loading', settingsStatus: 'loading', transcriptQuery: '', transcriptStream: 'all',
   theme: localStorage.getItem('reprolens-theme') || 'light',
 };
 
@@ -29,10 +29,17 @@ const CODE_AGENT_LABELS = { none: '关闭', codex: 'Codex CLI', claude: 'Claude 
 const VIEWS = ['overview', 'projects', 'new-run', 'project', 'settings', 'docs'];
 
 document.addEventListener('DOMContentLoaded', () => { void boot(); });
-window.addEventListener('hashchange', () => {
-  if (location.hash.startsWith('#project/')) { void openProject(location.hash.slice('#project/'.length), false); return; }
-  if (VIEWS.includes(view) && view !== state.view && view !== 'project') setView(view);
-});
+window.addEventListener('hashchange', () => { void applyRoute(); });
+
+async function applyRoute() {
+  const hash = location.hash.replace(/^#/, '');
+  if (hash.startsWith('project/')) {
+    await openProject(hash.slice('project/'.length), false);
+    return;
+  }
+  const view = hash || 'overview';
+  if (VIEWS.includes(view) && view !== 'project') setView(view);
+}
 
 async function boot() {
   applyTheme(state.theme);
@@ -40,8 +47,8 @@ async function boot() {
   mountIcons();
   await Promise.allSettled([checkHealth(), loadOptions(), loadSettings(), loadProjects()]);
   const initialView = location.hash.slice(1);
-  if (initialView.startsWith('project/')) { await openProject(initialView.slice('project/'.length), false); return; }
-  if (state.projects.length && !initialView) {
+  if (initialView) { await applyRoute(); return; }
+  if (state.projects.length) {
     const active = state.projects.find((project) => !TERMINAL_STATES.has(project.state)) ?? state.projects[0];
     if (active && active.state !== 'CREATED') await openProject(active.id, false);
   }
@@ -94,9 +101,28 @@ function bindGlobalEvents() {
   $('#approve-patch-button').addEventListener('click', () => void projectAction('approve'));
   $('#reject-patch-button').addEventListener('click', () => void projectAction('reject'));
   $('#copy-diff-button').addEventListener('click', copyDiff);
+  $('#transcript-autoscroll').addEventListener('click', toggleAutoscroll);
+  $('#transcript-search').addEventListener('input', (event) => { state.transcriptQuery = event.target.value; renderTranscript(); });
+  $('#transcript-stream-filter').addEventListener('change', (event) => { state.transcriptStream = event.target.value; renderTranscript(); });
+  $('#transcript-copy').addEventListener('click', () => void copyTranscript());
+  $('#transcript-download').addEventListener('click', downloadTranscript);
+  $('#report-frame').addEventListener('load', () => {
+    const loading = $('#report-frame-loading');
+    if (loading) loading.hidden = true;
+    $('#report-frame').setAttribute('aria-busy', 'false');
+  });
+  window.addEventListener('message', (event) => {
+    if (event.origin !== location.origin || event.data?.type !== 'reprolens-report-height') return;
+    const frame = $('#report-frame');
+    const height = Number(event.data.height);
+    if (frame && Number.isFinite(height)) frame.style.height = `${Math.max(620, Math.min(20000, height))}px`;
+  });
   $('#regenerate-report-summary').addEventListener('click', () => void regenerateReportSummary());
   $('#save-settings-button').addEventListener('click', () => void saveSettings());
   $('#test-llm-button').addEventListener('click', () => void testLLM());
+  $('#settings-runner').addEventListener('change', refreshSettingsFields);
+  $('#settings-code-agent').addEventListener('change', refreshSettingsFields);
+  $('#test-code-agent-button').addEventListener('click', () => void testCodeAgent());
   $('#settings-llm-preset').addEventListener('change', applyModelPreset);
   $('#close-preview').addEventListener('click', closePreview);
   $('#preview-dialog').addEventListener('click', (event) => { if (event.target === $('#preview-dialog')) closePreview(); });
@@ -124,6 +150,7 @@ function bindGlobalEvents() {
   refreshRunnerFields();
   refreshCodeAgentFields();
   refreshNewRunChecks();
+  setupProjectTabs();
 }
 
 function setView(view) {
@@ -131,7 +158,7 @@ function setView(view) {
   state.view = view;
   $$('.nav-link').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
   $$('[data-view-panel]').forEach((panel) => panel.classList.toggle('active', panel.dataset.viewPanel === view));
-  $('#crumb-current').textContent = { overview: '科研工作台', projects: '复现项目', 'new-run': '新建复现', project: state.current?.name || '项目详情', settings: '模型与算力', docs: '指南与接口' }[view] || view;
+  $('#crumb-current').textContent = { overview: '科研工作台', projects: '复现项目', 'new-run': '新建复现', project: state.current?.name || '项目详情', settings: '模型与执行', docs: '指南与接口' }[view] || view;
   if (view === 'overview') renderOverview();
   if (view === 'projects') renderProjects();
   if (view === 'settings') fillSettingsForm();
@@ -143,6 +170,7 @@ function setView(view) {
 
 function handleGlobalAction(action) {
   if (action === 'new-run') setView('new-run');
+  if (action === 'retry-projects') void loadProjects();
 }
 
 function toggleSidebar() {
@@ -156,12 +184,62 @@ function closeMobileNav() { $('.app-shell').classList.remove('mobile-nav-open');
 
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
-  $('#theme-toggle').innerHTML = icon(theme === 'dark' ? 'sun' : 'moon');
+  const label = theme === 'dark' ? '切换浅色模式' : '切换深色模式';
+  const button = $('#theme-toggle');
+  button.innerHTML = icon(theme === 'dark' ? 'sun' : 'moon');
+  button.setAttribute('aria-label', label);
+  button.setAttribute('title', label);
+  button.setAttribute('aria-pressed', String(theme === 'dark'));
 }
 function toggleTheme() {
   state.theme = state.theme === 'dark' ? 'light' : 'dark';
   localStorage.setItem('reprolens-theme', state.theme);
   applyTheme(state.theme);
+}
+
+function toggleAutoscroll() {
+  state.autoscroll = !state.autoscroll;
+  const button = $('#transcript-autoscroll');
+  if (button) {
+    button.setAttribute('aria-pressed', String(state.autoscroll));
+    button.setAttribute('aria-label', state.autoscroll ? '暂停自动滚动' : '恢复自动滚动');
+    button.classList.toggle('active', state.autoscroll);
+    button.innerHTML = icon(state.autoscroll ? 'down' : 'pause');
+  }
+  if (state.autoscroll) {
+    const transcript = $('#transcript');
+    if (transcript) transcript.scrollTop = transcript.scrollHeight;
+  }
+}
+
+function setupProjectTabs() {
+  const tabs = $$('[data-project-tab]');
+  const panels = $$('[data-project-tab-panel]');
+  tabs.forEach((tab, index) => {
+    const panel = panels[index];
+    if (!panel) return;
+    if (!tab.id) tab.id = `project-tab-${index}`;
+    if (!panel.id) panel.id = `project-panel-${index}`;
+    tab.setAttribute('aria-controls', panel.id);
+    panel.setAttribute('role', 'tabpanel');
+    panel.setAttribute('aria-labelledby', tab.id);
+  });
+  const tablist = $('.workspace-tabs');
+  if (!tablist) return;
+  tablist.addEventListener('keydown', (event) => {
+    const tabs = $$('[data-project-tab]');
+    const current = tabs.indexOf(document.activeElement);
+    if (current < 0) return;
+    let next = current;
+    if (event.key === 'ArrowRight') next = (current + 1) % tabs.length;
+    else if (event.key === 'ArrowLeft') next = (current - 1 + tabs.length) % tabs.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = tabs.length - 1;
+    else return;
+    event.preventDefault();
+    setProjectTab(tabs[next].dataset.projectTab, false);
+    tabs[next].focus();
+  });
 }
 
 async function checkHealth() {
@@ -180,20 +258,53 @@ async function loadOptions() {
   } catch (error) { toast(`无法读取系统选项：${error.message}`, 'error'); }
 }
 async function loadSettings() {
-  try { state.settings = await api('/api/v1/settings'); fillSettingsForm(); renderRuntimeConfig(); }
-  catch (error) { console.error('loadSettings failed', error); state.settings = null; renderRuntimeConfig(); }
+  try {
+    state.settings = await api('/api/v1/settings');
+    state.settingsStatus = 'ready';
+    const banner = $('#settings-error-banner');
+    if (banner) banner.hidden = true;
+    $('#save-settings-button').disabled = false;
+    $('#test-llm-button').disabled = false;
+    fillSettingsForm();
+    renderRuntimeConfig();
+  } catch (error) {
+    console.error('loadSettings failed', error);
+    state.settings = null;
+    state.settingsStatus = 'error';
+    const banner = $('#settings-error-banner');
+    if (banner) {
+      banner.hidden = false;
+      const text = banner.querySelector('span:last-child');
+      if (text) text.textContent = `设置加载失败：${error.message}。请重新加载后再保存。`;
+    }
+    $('#save-settings-button').disabled = true;
+    $('#test-llm-button').disabled = true;
+    renderRuntimeConfig();
+  }
 }
 async function loadProjects() {
   try {
     state.projects = await api('/api/v1/projects');
+    state.projectsStatus = 'ready';
     $('#project-count').textContent = String(state.projects.length);
     renderOverview(); renderProjects();
-  } catch (error) { toast(`无法读取项目：${error.message}`, 'error'); }
+  } catch (error) {
+    state.projectsStatus = 'error';
+    renderProjectLoadError(error);
+    toast(`无法读取项目：${error.message}`, 'error');
+  }
+}
+function renderProjectLoadError(error) {
+  const html = `<div class="empty-state"><div><strong>项目加载失败</strong><span>${escapeHtml(error.message)}</span><button class="button secondary small" data-action="retry-projects" type="button">重新加载</button></div></div>`;
+  $('#overview-projects').innerHTML = html;
+  $('#project-list').innerHTML = html;
+  $('#project-filter-count').textContent = '加载失败';
 }
 async function refreshAll() {
   await Promise.allSettled([checkHealth(), loadProjects(), loadSettings()]);
   if (state.current) await openProject(state.current.id, false);
-  toast('工作区已刷新', 'ok');
+  const ok = state.projectsStatus === 'ready' && state.settingsStatus === 'ready';
+  toast(ok ? '工作区已刷新' : '部分数据刷新失败，请检查服务状态', ok ? 'ok' : 'error');
 }
 
 async function runDemo() {
@@ -329,6 +440,9 @@ function renderProject() {
   $('#project-stat-runs').textContent = String(project.runs?.length ?? 0);
   $('#project-stat-verdict').textContent = project.verification?.verdict ?? '—';
   $('#project-stat-verdict').style.color = project.verification?.verdict === 'PASS' ? 'var(--success)' : project.verification?.verdict && project.verification.verdict !== 'PASS' ? 'var(--danger)' : '';
+  const assessment = project.report?.assessment;
+  $('#project-stat-score').textContent = assessment ? `${assessment.score} · ${assessment.grade}` : '—';
+  $('#project-stat-score').style.color = assessment?.grade === 'A' || assessment?.grade === 'B' ? 'var(--success)' : assessment?.grade === 'C' ? 'var(--warning)' : '';
   const errorBanner = $('#project-error-banner');
   if (errorBanner) {
     errorBanner.hidden = !project.error;
@@ -378,8 +492,8 @@ function renderClaims(project) {
   const canSelect = project.state === 'AWAITING_CLAIMS';
   $('#select-claims-button').disabled = !canSelect;
   $('#claims-list').innerHTML = claims.length ? claims.map((claim) => `<label class="claim-row">
-    <input type="checkbox" data-claim-id="${escapeAttr(claim.claim_id)}" ${claim.selected ? 'checked' : ''} ${canSelect ? '' : 'disabled'}>
-    <span class="claim-content"><strong>${escapeHtml(claim.claim_id)} · ${escapeHtml(claim.metric)}</strong><p>${escapeHtml(claim.text)}</p><small>${escapeHtml(claim.source?.path || '')}:${claim.source?.line || 0} · abs tolerance ${claim.tolerance?.abs ?? 0}</small></span>
+    <input type="checkbox" data-claim-id="${escapeAttr(claim.claim_id)}" ${claim.selected ? 'checked' : ''} ${canSelect && claim.source?.provenance !== 'mismatch' ? '' : 'disabled'}>
+    <span class="claim-content"><strong>${escapeHtml(claim.claim_id)} · ${escapeHtml(claim.metric)} ${claim.source?.provenance === 'mismatch' ? '<span class="status-badge danger">来源不匹配</span>' : claim.source?.provenance === 'verified' ? '<span class="status-badge success">来源已验证</span>' : '<span class="status-badge warning">来源待核验</span>'}</strong><p>${escapeHtml(claim.text)}</p><small>${claim.source?.page_number ? `第 ${claim.source.page_number} 页 · ` : ''}${escapeHtml(claim.source?.quote || `${claim.source?.path || ''}:${claim.source?.line || 0}`)} · abs tolerance ${claim.tolerance?.abs ?? 0}</small>${claim.source?.provenance_reason ? `<small class="claim-provenance-reason">${escapeHtml(claim.source.provenance_reason)}</small>` : ''}</span>
     <span class="claim-value"><strong>${formatNumber(claim.expected_value)}</strong><span>expected</span>${canSelect ? `<button class="claim-edit" data-edit-claim="${escapeAttr(claim.claim_id)}" type="button">校正</button>` : ''}</span>
   </label>`).join('') : '<div class="empty-state compact">开始材料摄取后显示论文中的可测主张。</div>';
 }
@@ -425,13 +539,14 @@ function renderVerification(project) {
   if (!project.verification) { panel.hidden = true; return; }
   panel.hidden = false;
   const verification = project.verification;
+  const criteria = verification.criteria_results ?? [];
   $('#verdict-pill').textContent = verification.verdict;
   $('#verdict-pill').className = `verdict ${verification.verdict.toLowerCase()}`;
   $('#verification-body').innerHTML = `<div class="verdict-grid">
     <div><span>论文期望</span><strong>${formatNumber(verification.expected)}</strong></div>
     <div><span>实验观测</span><strong>${formatNumber(verification.observed)}</strong></div>
     <div><span>绝对容差</span><strong>±${formatNumber(verification.tolerance?.abs ?? 0)}</strong></div>
-  </div><div class="rule-line">${escapeHtml(verification.rule)}${verification.note ? ' · ' + escapeHtml(verification.note) : ''}</div>`;
+  </div><div class="rule-line">${escapeHtml(verification.rule)}${verification.note ? ' · ' + escapeHtml(verification.note) : ''}</div>${criteria.length ? `<div class="criteria-results"><table><thead><tr><th>条件</th><th>规则</th><th>观测</th><th>结果</th></tr></thead><tbody>${criteria.map((criterion) => `<tr><td>${escapeHtml(criterion.metric)}</td><td>${escapeHtml(criterion.operator)} ${criterion.expected !== undefined ? formatNumber(criterion.expected) : `${formatNumber(criterion.lower ?? 0)}..${formatNumber(criterion.upper ?? 0)}`}</td><td>${criterion.observed === undefined ? '—' : formatNumber(criterion.observed)}</td><td><span class="verdict ${criterion.verdict.toLowerCase()}">${escapeHtml(criterion.verdict)}</span></td></tr>`).join('')}</tbody></table></div>` : ''}`;
 }
 
 function renderPaperPages(project) {
@@ -439,9 +554,28 @@ function renderPaperPages(project) {
   $('#paper-tab-count').textContent = String(pages.length);
   $('#paper-page-caption').textContent = `${pages.length} 页`;
   $('#paper-pages').innerHTML = pages.length ? pages.map((page) => `<button class="page-card ${page.image_path ? '' : 'no-image'}" data-preview-page="${page.page_number}" type="button">
-    <span class="page-thumb">${page.image_path ? `<img src="/api/v1/projects/${encodeURIComponent(project.id)}/evidence/paper/page-${String(page.page_number).padStart(3, '0')}.png" alt="论文第 ${page.page_number} 页" loading="lazy">` : '无页面图像'}</span>
+    <span class="page-thumb">${page.image_path ? `<img data-src="/api/v1/projects/${encodeURIComponent(project.id)}/evidence/paper/page-${String(page.page_number).padStart(3, '0')}.png" alt="论文第 ${page.page_number} 页" loading="lazy" decoding="async">` : '无页面图像'}</span>
     <span class="page-meta"><span>PAGE ${String(page.page_number).padStart(3, '0')}</span><span>${page.width ? `${page.width} × ${page.height}` : 'TEXT'}</span></span>
   </button>`).join('') : '<div class="empty-state compact">论文尚未摄取，或该格式没有页面图像。</div>';
+  observeLazyImages($('#paper-pages'));
+}
+
+function observeLazyImages(root) {
+  if (!root) return;
+  const images = $$('img[data-src]', root);
+  if (!('IntersectionObserver' in window)) {
+    images.forEach((image) => { image.src = image.dataset.src; });
+    return;
+  }
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      const image = entry.target;
+      if (image.dataset.src) image.src = image.dataset.src;
+      observer.unobserve(image);
+    });
+  }, { rootMargin: '300px' });
+  images.forEach((image) => observer.observe(image));
 }
 
 function renderEvidence(project) {
@@ -471,7 +605,12 @@ function renderContext(project) {
 
 function renderEvents() {
   const events = [...state.events].sort((a, b) => a.seq - b.seq);
-  $('#event-log').innerHTML = events.length ? events.slice(-30).map((event) => `<div class="event-row ${escapeAttr(event.type)}"><code>#${event.seq} · ${escapeHtml(event.type)}</code><p>${escapeHtml(event.message)}</p></div>`).join('') : '<div class="empty-state compact">等待事件。</div>';
+  $('#event-log').innerHTML = events.length ? events.slice(-30).map((event) => {
+    const message = event.type === 'run_output' || event.type === 'code_agent_output'
+      ? normalizeTerminalText(event.message).split('\n').slice(-3).join('\n').slice(-600)
+      : event.message;
+    return `<div class="event-row ${escapeAttr(event.type)}"><code>#${event.seq} · ${escapeHtml(event.type)}</code><p>${escapeHtml(message)}</p></div>`;
+  }).join('') : '<div class="empty-state compact">等待事件。</div>';
   const log = $('#event-log'); log.scrollTop = log.scrollHeight;
 }
 
@@ -481,12 +620,18 @@ function setProjectTab(tab, scroll = true) {
     const active = button.dataset.projectTab === state.projectTab;
     button.classList.toggle('active', active);
     button.setAttribute('aria-selected', String(active));
+    button.tabIndex = active ? 0 : -1;
   });
   $$('[data-project-tab-panel]').forEach((panel) => panel.classList.toggle('active', panel.dataset.projectTabPanel === state.projectTab));
   if (state.projectTab === 'report' && state.current) {
     const frame = $('#report-frame');
+    const loading = $('#report-frame-loading');
     const url = `/api/v1/projects/${encodeURIComponent(state.current.id)}/report.html`;
-    if (frame && frame.getAttribute('src') !== url) frame.setAttribute('src', url);
+    if (frame && frame.getAttribute('src') !== url) {
+      if (loading) loading.hidden = false;
+      frame.setAttribute('aria-busy', 'true');
+      frame.setAttribute('src', url);
+    }
     const link = $('#report-open-link');
     if (link) link.href = url;
   }
@@ -505,7 +650,12 @@ const EVENT_META = {
   run_completed: { icon: 'check', label: '实验结束' },
   metric_unavailable: { icon: 'alert', label: '指标不可用' },
   diagnosis_completed: { icon: 'flask', label: '故障诊断' },
+  code_agent_started: { icon: 'code', label: '代码 Agent 开始实现' },
+  code_agent_output: { icon: 'terminal', label: '代码 Agent 输出' },
+  code_agent_finished: { icon: 'check', label: '代码 Agent 完成实现' },
+  code_agent_failed: { icon: 'alert', label: '代码 Agent 执行失败' },
   code_agent_proposed: { icon: 'code', label: '代码 Agent 产出补丁' },
+  claim_provenance_checked: { icon: 'shield', label: '核验论文来源' },
   patch_proposed: { icon: 'code', label: '等待补丁审批' },
   patch_approved: { icon: 'check', label: '人工批准补丁' },
   patch_applied: { icon: 'check', label: '应用补丁' },
@@ -516,6 +666,7 @@ const EVENT_META = {
   report_summary_fallback: { icon: 'alert', label: '主 Agent 总结回退' },
   report_generated: { icon: 'evidence', label: '生成证据报告' },
   workflow_failed: { icon: 'alert', label: '工作流失败' },
+  workflow_interrupted: { icon: 'alert', label: '工作流被服务重启中断' },
   workflow_stopped: { icon: 'pause', label: '工作流停止' },
   stop_requested: { icon: 'pause', label: '请求停止' },
 };
@@ -523,10 +674,22 @@ const EVENT_META = {
 function renderTranscript() {
   const container = $('#transcript');
   if (!container) return;
-  const events = [...state.events].sort((a, b) => a.seq - b.seq);
-  if (!events.length) {
+  const allEvents = [...state.events].sort((a, b) => a.seq - b.seq);
+  const events = filterTranscriptEvents(allEvents);
+  const count = $('#transcript-count');
+  if (count) count.textContent = allEvents.length ? (events.length === allEvents.length ? `${events.length} 条` : `${events.length}/${allEvents.length} 条`) : '';
+  if (!allEvents.length) {
     container.innerHTML = '<div class="empty-state compact">开始执行后，Agent 的完整过程会在这里实时展开。</div>';
     return;
+  }
+  if (!events.length) {
+    container.innerHTML = '<div class="empty-state compact">没有匹配当前搜索或输出流筛选条件的事件。</div>';
+    return;
+  }
+  const scrollButton = $('#transcript-autoscroll');
+  if (scrollButton) {
+    scrollButton.setAttribute('aria-pressed', String(state.autoscroll));
+    scrollButton.classList.toggle('active', state.autoscroll);
   }
   const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 40;
   container.innerHTML = groupTranscriptEvents(events).map((event) => transcriptEntry(event)).join('');
@@ -539,12 +702,59 @@ function renderTranscript() {
   mountIcons(container);
 }
 
+function filterTranscriptEvents(events) {
+  const query = state.transcriptQuery.trim().toLowerCase();
+  const stream = state.transcriptStream;
+  return events.filter((event) => {
+    const output = event.type === 'run_output' || event.type === 'code_agent_output';
+    if (stream !== 'all' && (!output || event.data?.stream !== stream)) return false;
+    if (!query) return true;
+    const haystack = `${event.type} ${event.message} ${JSON.stringify(event.data ?? {})}`.toLowerCase();
+    return haystack.includes(query);
+  });
+}
+
+function transcriptPlainText() {
+  return filterTranscriptEvents([...state.events].sort((a, b) => a.seq - b.seq)).map((event) => {
+    const meta = EVENT_META[event.type] || { label: event.type };
+    const output = event.type === 'run_output' || event.type === 'code_agent_output';
+    const message = output ? normalizeTerminalText(event.message) : event.message;
+    return `#${event.seq} [${formatTime(event.created_at)}] ${meta.label}\n${message}`;
+  }).join('\n\n');
+}
+
+async function copyTranscript() {
+  const text = transcriptPlainText();
+  if (!text) return toast('当前没有可复制的执行过程', 'error');
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('执行过程已复制到剪贴板', 'ok');
+  } catch {
+    toast('当前环境不支持剪贴板访问', 'error');
+  }
+}
+
+function downloadTranscript() {
+  const text = transcriptPlainText();
+  if (!text) return toast('当前没有可下载的执行过程', 'error');
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `reprolens-${state.current?.id || 'project'}-transcript.txt`;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+  toast('执行过程已下载', 'ok');
+}
+
 
 function groupTranscriptEvents(events) {
   const grouped = [];
   for (const event of events) {
     const last = grouped[grouped.length - 1];
-    const sameOutput = event.type === 'run_output' && last && last.type === 'run_output'
+    const sameOutput = (event.type === 'run_output' || event.type === 'code_agent_output') && last && (last.type === 'run_output' || last.type === 'code_agent_output')
       && last.data?.run_id === event.data?.run_id
       && last.data?.stream === event.data?.stream;
     if (sameOutput) {
@@ -561,13 +771,23 @@ function groupTranscriptEvents(events) {
 function transcriptEntry(event) {
   const meta = EVENT_META[event.type] || { icon: 'circle', label: event.type };
   const data = event.data || {};
-  const output = event.type === 'run_output';
+  const output = event.type === 'run_output' || event.type === 'code_agent_output';
   const body = [];
   if (event.type === 'run_started') {
     body.push(`<span class="transcript-command">${icon('terminal')}${escapeHtml(String(data.command || ''))}</span>`);
     body.push(`<div class="transcript-meta"><span>attempt ${data.attempt ?? 1}</span><span>${escapeHtml(String(data.runner || ''))}</span><span>seed ${data.seed ?? '—'}</span></div>`);
   } else if (output) {
-    body.push(`<span class="transcript-output ${data.stream === 'stderr' ? 'stderr' : ''}">${escapeHtml(event.message.replace(/\u00a0/g, ' '))}</span>`);
+    const normalized = normalizeTerminalText(event.message.replace(/\u00a0/g, ' '));
+    const lines = normalized ? normalized.split('\n') : [];
+    const preview = lines.slice(-12).join('\n');
+    const extra = lines.length > 12
+      ? `<details class="transcript-output-details"><summary>展开全部 ${lines.length} 行</summary><pre class="transcript-output ${data.stream === 'stderr' ? 'stderr' : ''}">${escapeHtml(normalized)}</pre></details>`
+      : '';
+    body.push(`<span class="transcript-output ${data.stream === 'stderr' ? 'stderr' : ''}">${escapeHtml(preview)}</span>${extra}`);
+  } else if (event.type === 'code_agent_started') {
+    body.push(`<div class="transcript-meta"><span>agent ${escapeHtml(String(data.agent || ''))}</span><span>claim ${escapeHtml(String(data.claim_id || ''))}</span></div>`);
+  } else if (event.type === 'code_agent_finished') {
+    body.push(`<div class="transcript-meta"><span>${escapeHtml(String(data.agent || ''))}</span><span>${data.files?.length ?? 0} files</span><span>${data.duration_ms ?? 0} ms</span></div>`);
   } else if (event.type === 'run_completed') {
     body.push(`<div class="transcript-meta"><span>${escapeHtml(String(data.status || ''))}</span><span>exit ${data.exit_code ?? '—'}</span><span>${data.duration_ms ?? 0} ms</span></div>`);
   } else if (event.type === 'metric_verified') {
@@ -584,6 +804,15 @@ function transcriptEntry(event) {
       ${body.join('')}
     </div>
   </div>`;
+}
+
+function normalizeTerminalText(value) {
+  return String(value ?? '')
+    .split('\n')
+    .map((line) => line.split('\r').filter(Boolean).pop() ?? '')
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function formatTime(value) {
@@ -664,9 +893,23 @@ function subscribeProjectEvents(projectId) {
   const after = state.events.at(-1)?.seq || 0;
   const stream = new EventSource(`/api/v1/projects/${encodeURIComponent(projectId)}/events/stream?after=${after}`);
   state.stream = stream;
+  stream.onopen = () => {
+    const status = $('#transcript-status');
+    if (status && state.current && ACTIVE_STATES.has(state.current.state)) status.textContent = '正在执行';
+  };
+  stream.onerror = () => {
+    const status = $('#transcript-status');
+    if (status && state.current && ACTIVE_STATES.has(state.current.state)) status.textContent = '实时连接中断，正在重连';
+  };
   stream.addEventListener('reprolens', (event) => {
     try { const parsed = JSON.parse(event.data); if (!state.events.some((item) => item.seq === parsed.seq)) state.events.push(parsed); renderEvents(); renderTranscript(); }
     catch { /* ignore malformed SSE */ }
+  });
+  stream.addEventListener('done', () => {
+    stream.close();
+    if (state.stream === stream) state.stream = null;
+    const status = $('#transcript-status');
+    if (status) status.textContent = '执行已结束';
   });
 }
 
@@ -864,6 +1107,25 @@ function fillSettingsForm() {
   $('#settings-ssh-identity').value = settings.remote?.identity || '';
   $('#settings-ssh-base-dir').value = settings.remote?.baseDir || '/tmp/reprolens';
   $('#settings-model-state').textContent = settings.llm?.baseURL ? `${settings.llm.model} · 已配置` : '未配置模型';
+  refreshSettingsFields();
+}
+
+function refreshSettingsFields() {
+  const runner = $('#settings-runner')?.value || 'auto';
+  const codeType = $('#settings-code-agent')?.value || 'none';
+  const sshHeading = $('#settings-ssh-heading');
+  if (sshHeading) sshHeading.hidden = runner !== 'ssh';
+  ['#settings-ssh-host', '#settings-ssh-port', '#settings-ssh-identity', '#settings-ssh-base-dir'].forEach((selector) => {
+    const row = $(selector)?.closest('.field');
+    if (row) row.hidden = runner !== 'ssh';
+  });
+  ['#settings-code-command', '#settings-code-acceptance', '#settings-code-timeout'].forEach((selector) => {
+    const element = $(selector);
+    const row = element?.closest('.field, .switch-field');
+    if (row) row.hidden = codeType === 'none';
+  });
+  const testButton = $('#test-code-agent-button');
+  if (testButton) testButton.disabled = codeType === 'none';
 }
 
 function applyModelPreset() {
@@ -877,6 +1139,7 @@ function applyModelPreset() {
 }
 
 async function saveSettings() {
+  if (state.settingsStatus !== 'ready') return toast('设置尚未成功加载，无法保存', 'error');
   const button = $('#save-settings-button');
   button.disabled = true;
   try {
@@ -897,7 +1160,26 @@ async function saveSettings() {
   finally { button.disabled = false; }
 }
 
+async function testCodeAgent() {
+  if (state.settingsStatus !== 'ready') return toast('设置尚未成功加载，无法检测代码 Agent', 'error');
+  const status = $('#code-agent-test-result');
+  status.textContent = '正在检测可执行文件…'; status.className = 'inline-status';
+  try {
+    const result = await api('/api/v1/settings/test-code-agent', { method: 'POST', body: '{}' });
+    if (!result.configured) {
+      status.textContent = '代码 Agent 未启用'; status.className = 'inline-status';
+    } else if (result.available) {
+status.textContent = `可调用 · ${result.executable}${result.version ? ` · ${result.version}` : ''}${result.path ? ` · ${result.path}` : ''}`; status.className = 'inline-status ok';
+    } else {
+      status.textContent = `未找到可执行文件：${result.executable}`; status.className = 'inline-status bad';
+    }
+  } catch (error) {
+    status.textContent = error.message; status.className = 'inline-status bad';
+  }
+}
+
 async function testLLM() {
+  if (state.settingsStatus !== 'ready') return toast('设置尚未成功加载，无法测试连接', 'error');
   const status = $('#llm-test-result');
   const badge = $('#llm-status');
   status.textContent = '正在测试连接…'; status.className = 'inline-status';

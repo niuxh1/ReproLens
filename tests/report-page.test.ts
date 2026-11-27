@@ -38,14 +38,22 @@ describe('report document', () => {
     const events: Event[] = [{ id: 1, project_id: project.id, seq: 1, type: 'metric_verified', message: 'rule-based verdict PASS', created_at: now }];
     const summary = await new HeuristicAnalyzer().summarizeReport(project, events);
     const report = await buildReport(project, events, summary);
+    report.markdown += '\n\n<meta http-equiv="refresh" content="0;url=https://example.com">\n<iframe srcdoc="x"></iframe>\n<img src="https://example.com/x" onerror="alert(1)">\n<a href="javascript:alert(1)">bad</a>';
     const html = renderReportPage(project, report);
     expect(html).toContain('主 Agent 总结');
     expect(html).toContain('通过');
     expect(html).toContain('PASS');
     expect(html).toContain('deterministic-heuristic');
+    expect(html).toContain('证据成熟度评分');
     expect(html).toContain('@media print');
     expect(html).toContain('重新生成总结');
     expect(html).toContain('确定性数值规则');
+    expect(html).not.toContain('<meta http-equiv="refresh"');
+    expect(html).not.toContain('<iframe');
+    expect(html).not.toContain('onerror=');
+    expect(html).not.toContain('javascript:');
+    expect(html).not.toContain('frame-ancestors');
+    expect(html).toContain('reprolens-report-height');
   });
 
   it('serves report HTML and regenerates the summary through the API', async () => {
@@ -65,7 +73,13 @@ describe('report document', () => {
       const page = await server.inject({ method: 'GET', url: `/api/v1/projects/${project.id}/report.html` });
       expect(page.statusCode).toBe(200);
       expect(page.headers['content-type']).toContain('text/html');
+      expect(page.headers['content-security-policy']).toContain("frame-ancestors 'self'");
       expect(page.body).toContain('实验复现报告');
+      const missing = await server.inject({ method: 'GET', url: '/api/v1/projects/missing/report.html' });
+      expect(missing.statusCode).toBe(404);
+      expect(missing.headers['content-type']).toContain('text/html');
+      expect(missing.headers['content-security-policy']).toContain("frame-ancestors 'self'");
+      expect(missing.body).toContain('项目不存在');
       const regenerated = await server.inject({ method: 'POST', url: `/api/v1/projects/${project.id}/report/summarize`, payload: {} });
       expect(regenerated.statusCode).toBe(200);
       expect((regenerated.json() as Project).report?.agent_summary?.source).toBe('heuristic');

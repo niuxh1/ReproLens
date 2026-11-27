@@ -34,6 +34,7 @@ export interface RemoteConfig {
 export interface Config {
   addr: string;
   dataDir: string;
+  allowRemote: boolean;
   runner: 'auto' | 'docker' | 'local' | 'ssh';
   enableGPU: boolean;
   codeAgent: CodeAgentConfig;
@@ -146,6 +147,7 @@ export async function loadConfig(envPath = '.env'): Promise<Config> {
 
   const cfg: Config = {
     addr: get('REPROLENS_ADDR', DEFAULT_ADDR) || DEFAULT_ADDR,
+    allowRemote: getBool('REPROLENS_ALLOW_REMOTE', false),
     dataDir: get('REPROLENS_DATA_DIR', DEFAULT_DATA_DIR) || DEFAULT_DATA_DIR,
     runner,
     enableGPU: getBool('REPROLENS_ENABLE_GPU', false),
@@ -172,6 +174,9 @@ export async function loadConfig(envPath = '.env'): Promise<Config> {
   };
 
   if (!cfg.addr) throw new Error('REPROLENS_ADDR must not be empty');
+  if (!isLoopbackAddress(cfg.addr) && !cfg.allowRemote) {
+    throw new Error('non-loopback REPROLENS_ADDR requires REPROLENS_ALLOW_REMOTE=true');
+  }
   if (!cfg.dataDir) throw new Error('REPROLENS_DATA_DIR must not be empty');
   if (cfg.remote.port < 1 || cfg.remote.port > 65535) throw new Error(`invalid REPROLENS_SSH_PORT ${cfg.remote.port}`);
   if (cfg.runner === 'ssh' && !cfg.remote.host) throw new Error('REPROLENS_SSH_HOST is required when REPROLENS_RUNNER=ssh');
@@ -184,10 +189,13 @@ export async function loadConfig(envPath = '.env'): Promise<Config> {
   return cfg;
 }
 
+export function isLoopbackAddress(addr: string): boolean {
+  const host = addr.replace(/^\[/, '').split(']')[0]!.split(':')[0]?.toLowerCase();
+  return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '0:0:0:0:0:0:0:1';
+}
+
 export function localRunnerAllowed(cfg: Config): boolean {
-  if (cfg.runner === 'local') return true;
-  const host = cfg.addr.replace(/^\[/, '').split(']')[0]!.split(':')[0];
-  return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+  return isLoopbackAddress(cfg.addr);
 }
 
 
@@ -205,6 +213,9 @@ export function validateConfig(input: Config): Config {
   cfg.addr = cfg.addr.trim();
   cfg.dataDir = cfg.dataDir.trim();
   if (!cfg.addr) throw new Error('REPROLENS_ADDR must not be empty');
+  if (!isLoopbackAddress(cfg.addr) && !cfg.allowRemote) {
+    throw new Error('non-loopback REPROLENS_ADDR requires REPROLENS_ALLOW_REMOTE=true');
+  }
   if (!cfg.dataDir) throw new Error('REPROLENS_DATA_DIR must not be empty');
   if (cfg.remote.port < 1 || cfg.remote.port > 65535) throw new Error(`invalid REPROLENS_SSH_PORT ${cfg.remote.port}`);
   if (cfg.runner === 'ssh' && !cfg.remote.host) throw new Error('REPROLENS_SSH_HOST is required when REPROLENS_RUNNER=ssh');

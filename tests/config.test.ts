@@ -38,6 +38,17 @@ describe('configuration', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it('requires an explicit opt-in for non-loopback control planes', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'reprolens-config-remote-'));
+    const envPath = join(dir, '.env');
+    await writeFile(envPath, 'REPROLENS_ADDR=0.0.0.0:8080\n');
+    await expect(loadConfig(envPath)).rejects.toThrow(/ALLOW_REMOTE/);
+    await writeFile(envPath, 'REPROLENS_ADDR=0.0.0.0:8080\nREPROLENS_ALLOW_REMOTE=true\n');
+    const cfg = await loadConfig(envPath);
+    expect(cfg.allowRemote).toBe(true);
+    await rm(dir, { recursive: true, force: true });
+  });
+
   it('parses Go-style duration strings', () => {
     expect(parseDurationMs('60s')).toBe(60_000);
     expect(parseDurationMs('10m')).toBe(600_000);

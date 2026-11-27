@@ -14,16 +14,26 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   Write-Host '[ReproLens] Node.js not found. Install Node.js 22+ from https://nodejs.org/' -ForegroundColor Red
   exit 1
 }
-Write-Host ("[ReproLens] Node.js " + (node --version)) -ForegroundColor Cyan
+$nodeVersion = (node --version).Trim().TrimStart('v')
+Write-Host ("[ReproLens] Node.js " + $nodeVersion) -ForegroundColor Cyan
+if ([version]$nodeVersion -lt [version]'22.13.0') {
+  Write-Host '[ReproLens] Node.js 22.13+ is required.' -ForegroundColor Red
+  exit 1
+}
 
 if (-not (Test-Path (Join-Path $root 'node_modules'))) {
   Write-Host '[ReproLens] Installing dependencies for the first run...' -ForegroundColor Cyan
-  npm install
+  if (Test-Path (Join-Path $root 'package-lock.json')) { npm ci } else { npm install }
   if ($LASTEXITCODE -ne 0) { exit 1 }
 }
 if (-not (Test-Path (Join-Path $root '.env'))) {
   Copy-Item (Join-Path $root '.env.example') (Join-Path $root '.env')
   Write-Host '[ReproLens] Created .env. Configure the model in the web console.' -ForegroundColor Yellow
+}
+if (-not (Test-Path (Join-Path $root 'dist\cli.js'))) {
+  Write-Host '[ReproLens] Building production bundle...' -ForegroundColor Cyan
+  npm run build
+  if ($LASTEXITCODE -ne 0) { exit 1 }
 }
 
 $addr = $env:REPROLENS_ADDR
@@ -39,7 +49,7 @@ Write-Host ("[ReproLens] URL: " + $url) -ForegroundColor Green
 Write-Host '[ReproLens] Press Ctrl+C to stop the service' -ForegroundColor DarkGray
 Write-Host ''
 
-$job = Start-Job -ScriptBlock { param($dir) Set-Location $dir; npm run serve } -ArgumentList $root
+$job = Start-Job -ScriptBlock { param($dir) Set-Location $dir; npm run start:prod } -ArgumentList $root
 try {
   $ready = $false
   for ($i = 0; $i -lt 60; $i++) {

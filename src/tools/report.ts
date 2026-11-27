@@ -1,7 +1,11 @@
 import AdmZip from 'adm-zip';
-import { mkdir, readFile, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, stat, unlink } from 'node:fs/promises';
+import { createWorkspaceArchive } from './archive.js';
+import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative } from 'node:path';
 import type { AgentReportSummary, Event, EvidenceRef, Project, Report, Verdict } from '../domain/types.js';
+import { aggregateVerdict, assessReproducibility } from './assessment.js';
 
 const VERDICT_LABELS: Record<Verdict, string> = {
   PASS: '通过（PASS）',
@@ -12,8 +16,11 @@ const VERDICT_LABELS: Record<Verdict, string> = {
 
 export async function buildReport(project: Project, events: Event[], agentSummary?: AgentReportSummary): Promise<Report> {
   const now = new Date().toISOString();
-  const summary = project.verification
-    ? `规则核验结果：${VERDICT_LABELS[project.verification.verdict]}。论文期望 ${formatNumber(project.verification.expected)}，实验观测 ${formatNumber(project.verification.observed)}，指标为 ${project.verification.metric}。`
+  const verifications = project.verifications?.length ? project.verifications : project.verification ? [project.verification] : [];
+  const selectedClaimIds = project.selected_claim_ids?.length ? project.selected_claim_ids : undefined;
+  const aggregate = aggregateVerdict(verifications, selectedClaimIds);
+  const summary = aggregate
+    ? `聚合规则核验结果：${VERDICT_LABELS[aggregate.verdict]}。共核验 ${verifications.length} 条主张；聚合规则为 ${aggregate.rule}。`
     : '该项目尚未产生规则核验结论。';
   const report: Report = {
     report_id: `report_${project.id}`,
@@ -21,6 +28,9 @@ export async function buildReport(project: Project, events: Event[], agentSummar
     summary,
     markdown: '',
     evidence: await reportEvidence(project),
+    assessment: assessReproducibility(project, events),
+    ...(aggregate ? { aggregate_verdict: aggregate.verdict, aggregate_rule: aggregate.rule } : {}),
+    ...(verifications.length ? { verifications } : {}),
     ...(agentSummary ? { agent_summary: agentSummary } : {}),
   };
   report.markdown = renderReportMarkdown(project, events, report);
@@ -33,28 +43,12 @@ export async function exportPackage(project: Project, report: Report, events: Ev
   const name = `${sanitizeFileName(project.id)}-reprolens-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
   const destination = join(exportsDir, name);
   const zip = new AdmZip();
-  const manifest = {
-    schema_version: 2,
-    project_id: project.id,
-    name: project.name,
-    state: project.state,
-    generated_at: report.generated_at,
-    snapshot: project.verification ?? null,
-    patch: project.patch ?? null,
-    run_count: project.runs?.length ?? 0,
-    report_summary: report.summary,
-    agent_summary: report.agent_summary ? {
-      model: report.agent_summary.model,
-      source: report.agent_summary.source,
-      generated_at: report.agent_summary.generated_at,
-      verdict: report.agent_summary.verdict ?? null,
-    } : null,
-    visual_evidence_count: (project.paper.pages ?? []).filter((page) => page.image_path).length,
-  };
-  zip.addFile('manifest.json', Buffer.from(JSON.stringify(manifest, null, 2)));
+  const verifications = project.verifications?.length ? project.verifications : project.verification ? [project.verification] : [];
   zip.addFile('project.json', Buffer.from(JSON.stringify(project, null, 2)));
   zip.addFile('events.json', Buffer.from(JSON.stringify(events, null, 2)));
   zip.addFile('report.md', Buffer.from(report.markdown));
+  zip.addFile('verification.json', Buffer.from(JSON.stringify(verifications.length === 1 ? verifications[0] : project.verification ?? null, null, 2)));
+  zip.addFile('verifications.json', Buffer.from(JSON.stringify(verifications, null, 2)));
   if (report.agent_summary) zip.addFile('agent-summary.md', Buffer.from(report.agent_summary.markdown));
   if (project.patch?.diff) zip.addFile('patch.diff', Buffer.from(project.patch.diff));
   await addIfFile(zip, project.paper_path, `paper/original/${basename(project.paper_path)}`);
@@ -77,6 +71,68 @@ export async function exportPackage(project: Project, report: Report, events: Ev
   if (project.patch?.code_agent_log_path) {
     await addIfFile(zip, project.patch.code_agent_log_path, 'evidence/codeagent/agent.log');
   }
+
+  let workspaceSnapshotBytes = 0;
+  const workspaceSnapshot = join(tmpdir(), 'reprolens-workspace-' + Date.now() + '.tar.gz');
+  try {
+    await createWorkspaceArchive(project.workspace_path, workspaceSnapshot);
+    const snapshotInfo = await stat(workspaceSnapshot);
+    if (snapshotInfo.size <= 50 * 1024 * 1024) {
+      zip.addFile('workspace/workspace.tar.gz', await readFile(workspaceSnapshot));
+      workspaceSnapshotBytes = snapshotInfo.size;
+    }
+  } catch {
+    // Workspace snapshots are best-effort; verification and logs remain available.
+  } finally {
+    await unlink(workspaceSnapshot).catch(() => undefined);
+  }
+
+  const pageHashes = [];
+  for (const page of project.paper.pages ?? []) {
+    if (!page.image_path) continue;
+    const data = await readFile(page.image_path).catch(() => null);
+    if (data) pageHashes.push({ page_number: page.page_number, sha256: sha256(data), size: data.length });
+  }
+  const checksums: Record<string, { sha256: string; size: number }> = {};
+  for (const entry of zip.getEntries()) {
+    if (entry.isDirectory) continue;
+    const data = entry.getData();
+    checksums[entry.entryName] = { sha256: sha256(data), size: data.length };
+  }
+  const checksumsJSON = JSON.stringify(checksums, null, 2);
+  zip.addFile('checksums.json', Buffer.from(checksumsJSON));
+  const manifest = {
+    package_schema_version: 3,
+    project_id: project.id,
+    name: project.name,
+    state: project.state,
+    generated_at: report.generated_at,
+    snapshot: verifications,
+    aggregate_verdict: report.aggregate_verdict ?? null,
+    aggregate_rule: report.aggregate_rule ?? null,
+    patch: project.patch ?? null,
+    run_count: project.runs?.length ?? 0,
+    report_summary: report.summary,
+    agent_summary: report.agent_summary ? {
+      model: report.agent_summary.model,
+      source: report.agent_summary.source,
+      generated_at: report.agent_summary.generated_at,
+      verdict: report.agent_summary.verdict ?? null,
+    } : null,
+    reproducibility: report.assessment ? {
+      score: report.assessment.score,
+      grade: report.assessment.grade,
+      policy_version: report.assessment.policy_version,
+    } : null,
+    paper_sha256: project.paper.sha256 || null,
+    page_hashes: pageHashes,
+    evidence_hashes: (report.evidence ?? []).map((evidence) => ({ kind: evidence.kind, path: evidence.path, sha256: evidence.sha256 ?? null, size: evidence.size ?? null })),
+    rule_versions: [...new Set(verifications.map((verification) => verification.rule_version ?? 1))],
+    visual_evidence_count: (project.paper.pages ?? []).filter((page) => page.image_path).length,
+    workspace_snapshot_bytes: workspaceSnapshotBytes,
+    checksums_sha256: sha256(Buffer.from(checksumsJSON)),
+  };
+  zip.addFile('manifest.json', Buffer.from(JSON.stringify(manifest, null, 2)));
   await mkdir(dirname(destination), { recursive: true });
   zip.writeZip(destination);
   return destination;
@@ -84,6 +140,7 @@ export async function exportPackage(project: Project, report: Report, events: Ev
 
 export function renderReportMarkdown(project: Project, events: Event[], report: Report): string {
   const verification = project.verification;
+  const verifications = report.verifications?.length ? report.verifications : verification ? [verification] : [];
   const selectedClaims = (project.claims ?? []).filter((claim) => claim.selected);
   const candidateCount = (project.claims ?? []).length - selectedClaims.length;
   const lines: string[] = [
@@ -94,8 +151,8 @@ export function renderReportMarkdown(project: Project, events: Event[], report: 
     `| 项目 ID | \`${project.id}\` |`,
     `| 论文标题 | ${escapeMarkdown(project.paper.title || '未识别')} |`,
     `| 工作流状态 | \`${project.state}\` |`,
-    `| 论文文件 | \`${project.paper_path}\` |`,
-    `| 代码仓库 | \`${project.repo_path}\` |`,
+    `| 论文文件 | \`${basename(project.paper_path)}\` |`,
+    `| 代码仓库 | \`${basename(project.repo_path)}\` |`,
     `| 论文 SHA-256 | \`${project.paper.sha256 || '未记录'}\` |`,
     `| 报告生成时间 | ${report.generated_at} |`,
     `| 主 Agent 总结模型 | \`${report.agent_summary?.model ?? '尚未生成'}\` |`,
@@ -113,27 +170,41 @@ export function renderReportMarkdown(project: Project, events: Event[], report: 
   }
 
   lines.push('## 二、规则核验结论', '');
-  if (!verification) {
+  if (verifications.length === 0) {
     lines.push('该项目尚未记录规则核验结果。', '');
   } else {
     lines.push(
-      `> **${VERDICT_LABELS[verification.verdict]}**`,
+      `> **${VERDICT_LABELS[report.aggregate_verdict ?? verifications[verifications.length - 1]!.verdict]}**`,
       '',
-      '| 核验项 | 数值 |',
-      '| --- | --- |',
-      `| 指标 | \`${verification.metric}\` |`,
-      `| 论文期望值 | \`${formatNumber(verification.expected)}\` |`,
-      `| 实验观测值 | \`${formatNumber(verification.observed)}\` |`,
-      `| 绝对误差 | \`${formatNumber(Math.abs(verification.observed - verification.expected))}\` |`,
-      `| 绝对容差 | \`${verification.tolerance.abs}\` |`,
-      `| 相对容差 | \`${verification.tolerance.rel}\` |`,
-      `| 判定规则 | \`${verification.rule}\` |`,
+      `- 核验主张数：\`${verifications.length}\``,
+      `- 聚合规则：\`${report.aggregate_rule ?? '最后一个 claim 的规则结果'}\``,
+      '',
+      '| Claim | 指标 | 期望 | 观测 | 绝对误差 | 容差 | Verdict |',
+      '| --- | --- | ---: | ---: | ---: | --- | --- |',
+      ...verifications.map((item) => `| ${item.claim_id} | ${item.metric} | ${formatNumber(item.expected)} | ${formatNumber(item.observed)} | ${formatNumber(Math.abs(item.observed - item.expected))} | abs=${item.tolerance.abs}; rel=${item.tolerance.rel} | ${item.verdict} |`),
+      '',
+      `${report.summary}`,
+      '',
     );
-    if (verification.note) lines.push(`| 说明 | ${escapeMarkdown(verification.note)} |`);
-    lines.push('', `${report.summary}`, '');
   }
 
-  lines.push('## 三、实验主张', '');
+  if (report.assessment) {
+    const assessment = report.assessment;
+    lines.push(
+      '## 三、证据成熟度评估', '',
+      `> **证据成熟度评分：${assessment.score}/100 · ${assessment.grade} 级**`,
+      '',
+      '| 维度 | 得分 | 说明 |',
+      '| --- | --- | --- |',
+      ...assessment.factors.map((item) => `| ${item.label} | ${item.score}/${item.max} | ${item.detail} |`),
+      '',
+      ...(assessment.caps.length ? [`> 评分上限：${assessment.caps.join('；')}。`] : []),
+      '> 该评分用于衡量证据与执行成熟度，不替代规则 verdict，也不等同于统计意义上的可复现性。',
+      '',
+    );
+  }
+
+  lines.push('## 四、实验主张', '');
   if (selectedClaims.length) {
     for (const claim of selectedClaims) {
       lines.push(
@@ -144,7 +215,10 @@ export function renderReportMarkdown(project: Project, events: Event[], report: 
         `- 论文期望值：\`${formatNumber(claim.expected_value)}\``,
         `- 绝对容差：\`${claim.tolerance.abs}\``,
         `- 相对容差：\`${claim.tolerance.rel}\``,
-        `- 论文来源：\`${claim.source.path}:${claim.source.line}\``,
+        `- 论文来源：\`${basename(claim.source.path)}:${claim.source.line}\``,
+        ...(claim.source.page_number ? [`- PDF 页码：\`第 ${claim.source.page_number} 页\``] : []),
+        ...(claim.source.quote ? [`- 原文引文：> ${escapeMarkdown(claim.source.quote)}`] : []),
+        `- 来源校验：\`${claim.source.provenance ?? 'unverified'}\`${claim.source.provenance_reason ? `（${escapeMarkdown(claim.source.provenance_reason)}）` : ''}`,
         '',
       );
     }
@@ -155,7 +229,7 @@ export function renderReportMarkdown(project: Project, events: Event[], report: 
     lines.push(`> 另有 ${candidateCount} 条未选中的候选主张保留在项目 JSON 与证据包中，未用于本次规则核验。`, '');
   }
 
-  lines.push('## 四、实验计划', '');
+  lines.push('## 五、实验计划', '');
   if (project.plans?.length) {
     for (const plan of project.plans) {
       lines.push(
@@ -166,6 +240,7 @@ export function renderReportMarkdown(project: Project, events: Event[], report: 
         `- 工作目录：\`${plan.work_dir}\``,
         `- 随机种子：\`${plan.seed}\``,
         `- 指标来源：\`${plan.metric_source.pattern ?? plan.metric_source.kind}\``,
+        ...(plan.criteria?.length ? [`- 复合条件：\`${plan.aggregation ?? 'all'}\``, ...plan.criteria.map((criterion) => `  - ${criterion.id}: ${criterion.metric} ${criterion.operator} ${criterion.expected ?? `${criterion.lower}..${criterion.upper}`}`)] : []),
         `- 计划确认：${plan.confirmed ? '已确认' : '未确认'}`,
         '',
       );
@@ -174,7 +249,7 @@ export function renderReportMarkdown(project: Project, events: Event[], report: 
     lines.push('尚未生成实验计划。', '');
   }
 
-  lines.push('## 五、运行记录', '');
+  lines.push('## 六、运行记录', '');
   if (project.runs?.length) {
     for (const run of project.runs) {
       lines.push(
@@ -186,6 +261,8 @@ export function renderReportMarkdown(project: Project, events: Event[], report: 
         `- 耗时：\`${run.duration_ms} ms\``,
         `- 命令：\`${run.command}\``,
         `- GPU：${run.gpu ? '是' : '否'}`,
+        ...(run.effective_seed !== undefined ? ['- 有效 seed：' + String(run.effective_seed) + '（来源：' + (run.seed_source ?? 'unknown') + '）'] : []),
+        ...(run.gpu_device ? ['- GPU 设备：' + escapeMarkdown(run.gpu_device)] : []),
       );
       if (run.metric) lines.push(`- 提取指标：\`${run.metric.name}=${formatNumber(run.metric.value)}\``);
       if (run.remote_job_id) lines.push(`- 远程 Job：\`${run.remote_job_id}\``);
@@ -196,7 +273,7 @@ export function renderReportMarkdown(project: Project, events: Event[], report: 
     lines.push('尚未记录运行。', '');
   }
 
-  lines.push('## 六、补丁与人工审批', '');
+  lines.push('## 七、补丁与人工审批', '');
   if (project.patch) {
     lines.push(
       `- 补丁状态：\`${project.patch.status}\``,
@@ -214,7 +291,7 @@ export function renderReportMarkdown(project: Project, events: Event[], report: 
 
   const notableEvents = events.filter((event) => event.type !== 'run_output');
   const outputEvents = events.filter((event) => event.type === 'run_output');
-  lines.push('## 七、关键事件日志', '');
+  lines.push('## 八、关键事件日志', '');
   if (notableEvents.length) {
     for (const event of notableEvents) lines.push(`- \`#${event.seq}\` **${event.type}** — ${escapeMarkdown(event.message)}`);
     if (outputEvents.length) lines.push('', `> 运行过程共归档 ${outputEvents.length} 个流式输出块，全文保存在证据包中，不在报告正文重复展开。`);
@@ -223,7 +300,7 @@ export function renderReportMarkdown(project: Project, events: Event[], report: 
   }
   lines.push('');
 
-  lines.push('## 八、证据索引', '');
+  lines.push('## 九、证据索引', '');
   if (report.evidence?.length) {
     for (const evidence of report.evidence) {
       const size = evidence.size === undefined ? '' : ` · ${formatBytes(evidence.size)}`;
@@ -245,6 +322,11 @@ function escapeMarkdown(value: string): string {
   return value.replace(/([\\`*_{}[\]()#+.!|>-])/g, '\\$1');
 }
 
+function evidenceDisplayPath(project: Project, path: string): string {
+  const rel = relative(project.evidence_dir, path);
+  return rel && !rel.startsWith('..') ? rel.split('\\').join('/') : basename(path);
+}
+
 function evidenceLabel(kind: string): string {
   return ({ stdout: '标准输出日志', stderr: '标准错误日志', patch: '补丁', code_agent_log: 'CodeAgent 日志' } as Record<string, string>)[kind] ?? kind;
 }
@@ -256,7 +338,8 @@ async function reportEvidence(project: Project): Promise<EvidenceRef[]> {
     if (!path || seen.has(path)) return;
     seen.add(path);
     const info = await stat(path).catch(() => null);
-    refs.push({ kind, path, ...(info ? { size: info.size } : {}) });
+    const data = info?.isFile() ? await readFile(path).catch(() => null) : null;
+    refs.push({ kind, path, ...(info ? { size: info.size } : {}), ...(data ? { sha256: sha256(data) } : {}) });
   };
   for (const run of project.runs ?? []) {
     await add('stdout', run.stdout_path);
@@ -280,6 +363,9 @@ function formatNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : String(Number(value.toPrecision(8)));
 }
 
+function sha256(data: Buffer): string {
+  return createHash('sha256').update(data).digest('hex');
+}
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;

@@ -19,3 +19,10 @@ examples/iris-flda/
 playwright-report/
 test-results/
 output/
+coverage/
+*.tgz
+*.db
+*.db-wal
+*.db-shm
+.env.*
+!.env.example

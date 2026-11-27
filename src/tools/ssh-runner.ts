@@ -23,6 +23,7 @@ export class SSHRunner implements Runner {
   readonly enableGPU: boolean;
 
   constructor(config: SSHConfig) {
+    if (!isValidSSHHost(config.host)) throw new Error('invalid SSH host');
     this.host = config.host;
     this.port = config.port ?? 22;
     this.identity = config.identity ?? '';
@@ -47,6 +48,7 @@ export class SSHRunner implements Runner {
   }
 
   buildRunScript(request: ExecutionRequest, remoteDir: string): string {
+    const remoteWorkDir = resolveRemoteWorkDir(remoteDir, request.workDir);
     const lines = [
       '#!/usr/bin/env bash',
       'set -euo pipefail',
@@ -54,6 +56,7 @@ export class SSHRunner implements Runner {
       `cd ${shellQuote(remoteDir)}`,
       `tar -xzf ${shellQuote(posix.join(remoteDir, 'workspace.tar.gz'))}`,
       `rm -f ${shellQuote(posix.join(remoteDir, 'workspace.tar.gz'))}`,
+      `cd ${shellQuote(remoteWorkDir)}`,
       `export REPROLENS_SEED=${request.seed}`,
       `export PYTHONHASHSEED=${request.seed}`,
       'export PYTHONUNBUFFERED=1',
@@ -91,7 +94,8 @@ export class SSHRunner implements Runner {
     const outcome = await runProcess(this.sshBinary, this.buildSSHArgs(`bash ${shellQuote(posix.join(remoteDir, 'run.sh'))}`), {
       timeoutMs,
       signal: request.signal,
-      env: process.env,
+      env: { ...process.env, ...buildExecutionEnv(request) },
+      onOutput: request.onOutput,
     });
     const result: ExecutionResult = {
       runner: this.name(),
@@ -117,6 +121,18 @@ export class SSHRunner implements Runner {
     const outcome = await runProcess(binary, args, { timeoutMs, env: process.env });
     if (outcome.code !== 0) throw new Error(`${binary} failed: ${outcome.stderr || outcome.stdout}`);
   }
+}
+
+function isValidSSHHost(value: string): boolean {
+  const host = value.trim();
+  if (!host || host.startsWith('-') || /[\s\x00-\x1f]/.test(host)) return false;
+  return /^(?:[A-Za-z0-9._-]+@)?(?:\[[0-9A-Fa-f:]+\]|[A-Za-z0-9._-]+)$/.test(host);
+}
+
+function resolveRemoteWorkDir(remoteDir: string, workDir: string): string {
+  const normalized = (workDir || '.').trim().replace(/\\/g, '/');
+  if (posix.isAbsolute(normalized) || normalized.split('/').includes('..')) throw new Error('work_dir escapes remote workspace');
+  return posix.join(remoteDir, normalized);
 }
 
 function shellQuote(value: string): string {

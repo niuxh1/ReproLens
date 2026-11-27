@@ -34,6 +34,10 @@ VERIFY（TypeScript 规则计算，模型不能写 verdict）
 - 主 Agent 根据事实 JSON 生成中文报告总结，明确标注模型、生成时间和来源。
 - 报告可渲染为现代化 HTML 文档，支持打印 / 导出 PDF；证据索引只列运行日志、补丁与 CodeAgent 证据，不再展示原始论文或论文页面图像。
 - Web 控制台展示完整流式执行过程、项目状态、claim、plan、run、patch、verdict、报告和证据包。
+- claim 来源支持页码、引文、表格/图号；本地确定性校验会阻止不存在的引文进入核验。
+- 实验计划支持复合指标条件（`eq/neq/gt/gte/lt/lte/between`，`all/any` 聚合），缺失指标按证据不足处理。
+- 每次运行绑定 `claim_id` / `plan_id`，记录 stdout/stderr 哈希；非零退出码、截断输出和 plan/claim 不匹配均 fail closed。
+- 执行过程支持搜索、stdout/stderr 筛选、复制、下载、自动滚动，以及 CodeAgent 流式输出。
 
 ## 技术栈
 
@@ -46,7 +50,7 @@ VERIFY（TypeScript 规则计算，模型不能写 verdict）
 | 模型 | OpenAI-compatible Chat Completions；支持多模态页面图像 |
 | PDF | `pdfjs-dist` 文本抽取 + `@napi-rs/canvas` 页面渲染 |
 | 归档 | tar.gz 工作区归档 + adm-zip 证据包 |
-| 测试 | Vitest（15 个测试文件，45 个测试） |
+| 测试 | Vitest 单元/集成测试 + V8 覆盖率门槛 |
 
 ## 不可破坏的约束
 
@@ -94,6 +98,12 @@ VERIFY（TypeScript 规则计算，模型不能写 verdict）
 .\start.ps1 -NoBrowser
 ```
 
+Linux / macOS：
+
+```bash
+./start.sh
+```
+
 ### 手动启动
 
 ```powershell
@@ -117,7 +127,7 @@ REPROLENS_LLM_TIMEOUT=60s
 REPROLENS_LLM_VISION=true
 ```
 
-也可以在 Web 控制台的 **模型与算力 → 模型接入** 中填写并保存。保存后：
+也可以在 Web 控制台的 **模型与执行 → 模型接入** 中填写并保存。保存后：
 
 1. 立即替换当前 Orchestrator 的 Analyzer、Runner、CodeAgent；
 2. 写入 `data/settings.json`；
@@ -202,11 +212,17 @@ CodeAgent 不会直接写原始工作区，也不会写最终 verdict。Web 控�
 - 工作台展示真实项目统计、当前研究与最近项目；
 - 项目工作区提供六阶段复现轨道、实验主张、计划、补丁审批与规则核验；
 - 执行过程页签展示命令启动、stdout/stderr 流、诊断、补丁、核验和报告事件；
+- 执行过程支持搜索、stdout/stderr 筛选、复制、下载、自动滚动，CodeAgent 输出也进入同一时间线；
+- 报告 iframe 通过 `postMessage` 自动适配内容高度，避免页面与报告双层滚动；
 - 论文页签直接渲染原始 PDF 页面缩略图，并支持大图查看；
 - 报告页签以 iframe 展示可读 HTML 报告；
-- 模型与算力分为模型接入、执行与代码 Agent 两组；
+- 模型与执行分为模型接入、执行与代码 Agent 两组；
 - 支持浅色/深色主题、可折叠侧栏、`Ctrl/Cmd + K` 命令面板、键盘焦点与 reduced-motion；
 - 1440 / 1024 / 390 / 320 宽度均通过无横向溢出检查。
+
+![执行过程搜索与流式输出](docs/observatory-transcript-tools.png)
+
+![中文实验报告与证据成熟度](docs/observatory-report-autofit-top.png)
 
 界面证据：
 
@@ -301,7 +317,46 @@ node --check public\app.js
 git diff --check
 ```
 
-测试覆盖状态机、SQLite、事件序号、claim 抽取/去重、PDF 页面视觉证据、补丁路径与新增文件、GPU 参数、SSH 参数、CodeAgent diff、规则核验、主 Agent 总结、报告 HTML/ZIP、运行时设置和端到端 demo。
+当前基线为 **19 个测试文件、85 个测试**，覆盖状态机、SQLite 迁移与 revision CAS、操作幂等/租约、事件分页、claim 抽取/去重与来源核验、PDF 页面视觉证据、复合指标规则、补丁路径与新增文件、GPU 参数、SSH 参数、CodeAgent 流式输出、主 Agent 总结、报告 HTML/ZIP、CSP 与运行时设置。
+
+## 产品化与运维
+
+- `/livez`：进程存活检查。
+- `/readyz`：SQLite 与数据目录可用性检查。
+- 非 loopback 监听必须显式设置 `REPROLENS_ALLOW_REMOTE=true`，本机 Runner 仍要求 loopback。
+- `/healthz`：兼容性聚合健康检查。
+- `POST /api/v1/settings/test-code-agent` 只定位可执行文件并读取版本，不执行代码 Agent。
+- `Idempotency-Key` 支持操作重放、请求体绑定与冲突检测；`If-Match: "rev-N"` 提供项目 revision 乐观锁。
+- SQLite 迁移记录 schema 版本；运行操作带租约、心跳和过期回收，重启后只废弃过期租约。
+- 状态转移与 `state_changed` 事件在同一事务中提交。
+- `/events?after=&limit=` 返回 `x-has-more` 与 `x-next-cursor`；报告生成读取全量事件而非固定 10,000 条。
+- 所有 API 响应带 `x-request-id` 和 `x-reprolens-version`。
+- `SIGINT` / `SIGTERM` 优雅关闭，SSE 与 SQLite 会随服务关闭。
+- GitHub Actions 覆盖 Windows / Linux / macOS、Node 22.13 与 Node 24。
+- CI 执行 typecheck、测试、构建、覆盖率、依赖审计、`npm pack --dry-run`。
+- `SECURITY.md` 说明本地可信边界、CodeAgent 风险与部署建议。
+- `CONTRIBUTING.md` 说明质量门禁和架构规则。
+- `CHANGELOG.md` 记录当前未发布能力。
+
+### 证据成熟度
+
+报告中的“证据成熟度”是执行与证据完备度指标，不是统计意义上的可复现性结论：
+
+- 单次成功运行最高 60 分（C）。
+- 本机执行最高 65 分。
+- 无成功运行最高 20 分。
+- 无规则核验最高 50 分。
+- 多 claim 采用 `FAILED > DIFFERENT > INSUFFICIENT_EVIDENCE > PASS` 聚合规则。
+
+### 数据集
+
+`data_path` 支持文件或目录；摄取时会复制到隔离工作区：
+
+```text
+inputs/data/
+```
+
+Local、Docker、SSH 执行器均可访问同一数据集暂存位置，并记录 `data_staged` 事件。
 
 ## 安全与限制
 

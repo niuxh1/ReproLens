@@ -36,6 +36,7 @@ export function buildAnalyzer(config: Config, log: (message: string) => void = (
 export function buildRunner(config: Config): Runner {
   switch (config.runner) {
     case 'local':
+      if (!localRunnerAllowed(config)) throw new Error('local runner requires a loopback server address');
       return new LocalRunner(config.enableGPU);
     case 'docker':
       return new DockerRunner({ enableGPU: config.enableGPU });

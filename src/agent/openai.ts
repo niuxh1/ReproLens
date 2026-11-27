@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import type { Analyzer } from './analyzer.js';
-import type { AgentReportSummary, Claim, Diagnosis, Event, ExperimentPlan, Paper, Project, RepoSummary, Run } from '../domain/types.js';
+import type { AgentReportSummary, Claim, Diagnosis, Event, ExperimentPlan, Paper, Project, RepoSummary, Run, VerificationCriterion } from '../domain/types.js';
+import { aggregateVerdict } from '../tools/assessment.js';
 
 export interface OpenAIAnalyzerOptions {
   baseURL: string;
@@ -29,7 +30,10 @@ const claimEnvelope = z.object({
     metric: z.string(),
     expected_value: z.coerce.number(),
     tolerance: z.object({ abs: z.coerce.number().optional(), rel: z.coerce.number().optional() }).optional(),
-    source: z.object({ line: z.coerce.number().optional(), quote: z.string().optional() }).optional(),
+    source: z.object({
+      line: z.coerce.number().optional(), page_number: z.coerce.number().optional(), quote: z.string().optional(),
+      table: z.string().optional(), figure: z.string().optional(),
+    }).optional(),
   })).min(1),
 });
 
@@ -39,6 +43,13 @@ const planSchema = z.object({
   work_dir: z.string().optional(),
   seed: z.coerce.number().optional(),
   metric_source: z.object({ kind: z.string().optional(), path: z.string().optional(), pattern: z.string().optional(), key: z.string().optional() }).optional(),
+  criteria: z.array(z.object({
+    id: z.string().optional(), metric: z.string(), operator: z.enum(['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'between']),
+    expected: z.coerce.number().optional(), lower: z.coerce.number().optional(), upper: z.coerce.number().optional(),
+    tolerance: z.object({ abs: z.coerce.number().optional(), rel: z.coerce.number().optional() }).optional(),
+    metric_source: z.object({ kind: z.string().optional(), path: z.string().optional(), pattern: z.string().optional(), key: z.string().optional() }).optional(),
+  })).optional(),
+  aggregation: z.enum(['all', 'any']).optional(),
   notes: z.string().optional(),
 });
 
@@ -79,9 +90,9 @@ export class OpenAICompatibleAnalyzer implements Analyzer {
     const numbered = numberLines(paper.text);
     const prompt = [
       'Extract measurable experimental claims from the paper. Return only JSON with shape',
-      '{"claims":[{"claim_id":"C1","text":"...","metric":"accuracy","expected_value":0.81,"tolerance":{"abs":0.01,"rel":0},"source":{"line":3,"quote":"..."}}]}.',
+      '{"claims":[{"claim_id":"C1","text":"...","metric":"accuracy","expected_value":0.81,"tolerance":{"abs":0.01,"rel":0},"source":{"line":3,"page_number":2,"quote":"...","table":"Table 2"}}]}.',
       'Only include claims backed by a numeric metric in the supplied text. Every source.line must refer to the numbered line.',
-      'Never invent a value. If a claim depends on a chart, table, or figure, inspect the supplied page image and cite the page in the quote.',
+      'Never invent a value. If a claim depends on a chart, table, or figure, inspect the supplied page image, cite page_number, and include the exact quote or table/figure label. The quote must appear verbatim on that page.',
       `Repository summary:\n${summarizeRepo(repo)}`,
       `Visual evidence inventory:\n${summarizeVisuals(paper)}`,
       `Numbered paper:\n${numbered}`,
@@ -114,7 +125,13 @@ export class OpenAICompatibleAnalyzer implements Analyzer {
         metric,
         expected_value: value,
         tolerance: abs === 0 && rel === 0 ? { abs: 0.01, rel: 0 } : { abs, rel },
-        source: { path: paper.source_path, line: sourceLine, ...(raw.source?.quote ? { quote: raw.source.quote } : {}) },
+        source: {
+          path: paper.source_path, line: sourceLine,
+          ...(raw.source?.page_number && raw.source.page_number > 0 ? { page_number: Math.trunc(raw.source.page_number) } : {}),
+          ...(raw.source?.quote ? { quote: raw.source.quote } : {}),
+          ...(raw.source?.table ? { table: raw.source.table } : {}),
+          ...(raw.source?.figure ? { figure: raw.source.figure } : {}),
+        },
         selected: false,
       });
     }
@@ -142,7 +159,25 @@ export class OpenAICompatibleAnalyzer implements Analyzer {
     const command = (plan.command ?? '').trim();
     validateCommand(command);
     const metric = normalizeMetric(claim.metric);
-    const metricSource = plan.metric_source;
+    const metricSource = normalizeMetricSource(plan.metric_source, metric);
+    const criteria: VerificationCriterion[] | undefined = plan.criteria?.length
+      ? plan.criteria.map((criterion, index) => {
+        const criterionMetric = normalizeMetric(criterion.metric);
+        const abs = criterion.tolerance?.abs ?? 0;
+        const rel = criterion.tolerance?.rel ?? 0;
+        if (!criterionMetric || abs < 0 || rel < 0) throw new Error(`invalid verification criterion ${index + 1}`);
+        return {
+          id: criterion.id?.trim() || `criterion_${index + 1}`,
+          metric: criterionMetric,
+          operator: criterion.operator,
+          ...(criterion.expected !== undefined ? { expected: criterion.expected } : {}),
+          ...(criterion.lower !== undefined ? { lower: criterion.lower } : {}),
+          ...(criterion.upper !== undefined ? { upper: criterion.upper } : {}),
+          tolerance: abs === 0 && rel === 0 ? { abs: 0, rel: 0 } : { abs, rel },
+          metric_source: normalizeMetricSource(criterion.metric_source, criterionMetric),
+        };
+      })
+      : undefined;
     return {
       id: `plan_${claim.claim_id.toLowerCase()}`,
       claim_id: claim.claim_id,
@@ -153,12 +188,8 @@ export class OpenAICompatibleAnalyzer implements Analyzer {
       expected_metric: metric,
       expected_value: claim.expected_value,
       tolerance: claim.tolerance,
-      metric_source: {
-        kind: metricSource?.kind || 'stdout_regex',
-        ...(metricSource?.path ? { path: metricSource.path } : {}),
-        pattern: metricSource?.pattern || `(?i)${escapeRegex(metric)}\\s*[:=]\\s*([-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))`,
-        key: metricSource?.key || metric,
-      },
+      metric_source: metricSource,
+      ...(criteria ? { criteria, aggregation: plan.aggregation ?? 'all' } : {}),
       ...(plan.notes ? { notes: plan.notes } : {}),
       confirmed: false,
     };
@@ -192,15 +223,21 @@ export class OpenAICompatibleAnalyzer implements Analyzer {
 
   async summarizeReport(project: Project, events: Event[]): Promise<AgentReportSummary> {
     const verification = project.verification;
+    const verifications = project.verifications?.length ? project.verifications : verification ? [verification] : [];
+    const aggregate = aggregateVerdict(verifications);
     const selectedClaims = (project.claims ?? []).filter((claim) => claim.selected);
     const context = {
       project: { id: project.id, name: project.name, state: project.state, paper_title: project.paper.title },
-      rule_verdict: verification?.verdict ?? null,
+      rule_verdict: aggregate?.verdict ?? null,
+      aggregate_rule: aggregate?.rule ?? null,
       verification: verification ?? null,
+      verifications,
       selected_claims: selectedClaims,
       plans: project.plans ?? [],
       runs: (project.runs ?? []).map((run) => ({
         attempt: run.attempt, status: run.status, exit_code: run.exit_code, runner: run.runner, gpu: run.gpu,
+        requested_seed: run.requested_seed ?? null, effective_seed: run.effective_seed ?? null, seed_source: run.seed_source ?? null,
+        gpu_detected: run.gpu_detected ?? false, gpu_device: run.gpu_device ?? null,
         duration_ms: run.duration_ms, metric: run.metric ?? null, failure_class: run.failure_class ?? null,
       })),
       patch: project.patch ? { status: project.patch.status, files: project.patch.files, approved_by: project.patch.approved_by ?? null } : null,
@@ -227,7 +264,7 @@ export class OpenAICompatibleAnalyzer implements Analyzer {
       model: this.model,
       generated_at: new Date().toISOString(),
       source: 'model',
-      ...(verification ? { verdict: verification.verdict } : {}),
+      ...(aggregate ? { verdict: aggregate.verdict } : {}),
     };
   }
 
@@ -352,6 +389,15 @@ function runSummary(run: Run): string {
 
 function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max)}\n...[truncated]`;
+}
+
+function normalizeMetricSource(source: { kind?: string; path?: string; pattern?: string; key?: string } | undefined, metric: string): { kind: string; path?: string; pattern: string; key: string } {
+  return {
+    kind: source?.kind || 'stdout_regex',
+    ...(source?.path ? { path: source.path } : {}),
+    pattern: source?.pattern || `(?i)${escapeRegex(metric)}\\s*[:=]\\s*([-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))`,
+    key: source?.key || metric,
+  };
 }
 
 function normalizeMetric(metric: string): string {

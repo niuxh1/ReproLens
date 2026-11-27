@@ -1,4 +1,6 @@
-import type { ExperimentPlan, Metric, MetricSource, Run, Tolerance, Verification, Verdict } from '../domain/types.js';
+import type {
+  CriterionResult, ExperimentPlan, Metric, MetricSource, Run, Tolerance, Verification, VerificationCriterion, Verdict,
+} from '../domain/types.js';
 
 function compileRegex(pattern: string): RegExp {
   const inline = /^\(\?([ims]+)\)/.exec(pattern);
@@ -63,10 +65,39 @@ export function verifyRun(plan: ExperimentPlan, run: Run): Verification {
     tolerance: plan.tolerance,
     verdict: 'INSUFFICIENT_EVIDENCE',
     rule: '',
+    rule_version: 2,
     verified_at: new Date().toISOString(),
   };
   if (run.status !== 'succeeded') {
     return { ...base, verdict: 'FAILED', note: 'the experiment did not complete successfully' };
+  }
+  if (run.exit_code !== 0) {
+    return { ...base, verdict: 'FAILED', note: `the experiment exited with code ${run.exit_code}` };
+  }
+  if (run.plan_id && run.plan_id !== plan.id) {
+    return { ...base, verdict: 'FAILED', note: `run is bound to plan ${run.plan_id}, expected ${plan.id}` };
+  }
+  if (run.claim_id && run.claim_id !== plan.claim_id) {
+    return { ...base, verdict: 'FAILED', note: `run is bound to claim ${run.claim_id}, expected ${plan.claim_id}` };
+  }
+  if (run.stdout_truncated) {
+    return { ...base, verdict: 'INSUFFICIENT_EVIDENCE', note: 'stdout was truncated before verification' };
+  }
+  if (plan.criteria?.length) {
+    const results = plan.criteria.map((criterion) => verifyCriterion(criterion, run.stdout ?? ''));
+    const aggregate = aggregateCriteria(results, plan.aggregation ?? 'all');
+    const representative = results.find((result) => result.observed !== undefined) ?? results[0];
+    return {
+      ...base,
+      metric: plan.expected_metric || plan.criteria.map((criterion) => criterion.metric).join('+'),
+      expected: representative?.expected ?? representative?.lower ?? plan.expected_value,
+      observed: representative?.observed ?? 0,
+      tolerance: representative ? (plan.criteria.find((criterion) => criterion.id === representative.criterion_id)?.tolerance ?? plan.tolerance) : plan.tolerance,
+      verdict: aggregate.verdict,
+      rule: aggregate.rule,
+      criteria_results: results,
+      ...(run.stdout_path ? { evidence: [run.stdout_path] } : {}),
+    };
   }
   try {
     const metric = extractMetric(run.stdout ?? '', plan.metric_source);
@@ -81,6 +112,77 @@ export function verifyRun(plan: ExperimentPlan, run: Run): Verification {
   } catch (error) {
     return { ...base, note: (error as Error).message };
   }
+}
+
+export function verifyCriterion(criterion: VerificationCriterion, stdout: string): CriterionResult {
+  const result: CriterionResult = {
+    criterion_id: criterion.id,
+    metric: criterion.metric,
+    operator: criterion.operator,
+    ...(criterion.expected !== undefined ? { expected: criterion.expected } : {}),
+    ...(criterion.lower !== undefined ? { lower: criterion.lower } : {}),
+    ...(criterion.upper !== undefined ? { upper: criterion.upper } : {}),
+    verdict: 'INSUFFICIENT_EVIDENCE',
+    rule: '',
+  };
+  let observed: number;
+  try {
+    observed = extractMetric(stdout, criterion.metric_source).value;
+  } catch (error) {
+    return { ...result, rule: (error as Error).message };
+  }
+  result.observed = observed;
+  const verdict = evaluateOperator(criterion, observed);
+  return { ...result, ...verdict };
+}
+
+function evaluateOperator(criterion: VerificationCriterion, observed: number): { verdict: Verdict; rule: string } {
+  if (criterion.operator === 'eq') {
+    if (criterion.expected === undefined || !Number.isFinite(criterion.expected)) return { verdict: 'INSUFFICIENT_EVIDENCE', rule: 'eq criterion has no finite expected value' };
+    return verifyMetric(criterion.expected, observed, criterion.tolerance);
+  }
+  if (criterion.operator === 'neq') {
+    if (criterion.expected === undefined || !Number.isFinite(criterion.expected)) return { verdict: 'INSUFFICIENT_EVIDENCE', rule: 'neq criterion has no finite expected value' };
+    const equality = verifyMetric(criterion.expected, observed, criterion.tolerance);
+    return equality.verdict === 'PASS'
+      ? { verdict: 'DIFFERENT', rule: `observed ${observed} is within the excluded equality tolerance` }
+      : { verdict: 'PASS', rule: `observed ${observed} differs from excluded value ${criterion.expected}` };
+  }
+  if (criterion.operator === 'between') {
+    if (criterion.lower === undefined || criterion.upper === undefined || !Number.isFinite(criterion.lower) || !Number.isFinite(criterion.upper)) {
+      return { verdict: 'INSUFFICIENT_EVIDENCE', rule: 'between criterion requires finite lower and upper bounds' };
+    }
+    if (criterion.lower > criterion.upper) return { verdict: 'INSUFFICIENT_EVIDENCE', rule: 'between lower bound exceeds upper bound' };
+    return observed >= criterion.lower && observed <= criterion.upper
+      ? { verdict: 'PASS', rule: `${observed} is within [${criterion.lower}, ${criterion.upper}]` }
+      : { verdict: 'DIFFERENT', rule: `${observed} is outside [${criterion.lower}, ${criterion.upper}]` };
+  }
+  if (criterion.expected === undefined || !Number.isFinite(criterion.expected)) {
+    return { verdict: 'INSUFFICIENT_EVIDENCE', rule: `${criterion.operator} criterion has no finite expected value` };
+  }
+  const comparisons = {
+    gt: { pass: observed > criterion.expected, rule: `${observed} > ${criterion.expected}` },
+    gte: { pass: observed >= criterion.expected, rule: `${observed} >= ${criterion.expected}` },
+    lt: { pass: observed < criterion.expected, rule: `${observed} < ${criterion.expected}` },
+    lte: { pass: observed <= criterion.expected, rule: `${observed} <= ${criterion.expected}` },
+  };
+  const comparison = comparisons[criterion.operator];
+  return comparison.pass
+    ? { verdict: 'PASS', rule: comparison.rule }
+    : { verdict: 'DIFFERENT', rule: comparison.rule.replace(' ', ' not ').replace('not >=', '<').replace('not <=', '>').replace('not >', '<=').replace('not <', '>=') };
+}
+
+export function aggregateCriteria(results: CriterionResult[], mode: 'all' | 'any'): { verdict: Verdict; rule: string } {
+  if (results.length === 0) return { verdict: 'INSUFFICIENT_EVIDENCE', rule: 'no verification criteria were provided' };
+  if (results.some((result) => result.verdict === 'FAILED')) return { verdict: 'FAILED', rule: 'at least one criterion failed' };
+  if (mode === 'any') {
+    if (results.some((result) => result.verdict === 'PASS')) return { verdict: 'PASS', rule: 'any-of: at least one criterion passed' };
+    if (results.some((result) => result.verdict === 'INSUFFICIENT_EVIDENCE')) return { verdict: 'INSUFFICIENT_EVIDENCE', rule: 'any-of: no criterion passed and evidence is incomplete' };
+    return { verdict: 'DIFFERENT', rule: 'any-of: all criteria differed' };
+  }
+  if (results.some((result) => result.verdict === 'INSUFFICIENT_EVIDENCE')) return { verdict: 'INSUFFICIENT_EVIDENCE', rule: 'all-of: at least one criterion has insufficient evidence' };
+  if (results.some((result) => result.verdict === 'DIFFERENT')) return { verdict: 'DIFFERENT', rule: 'all-of: at least one criterion differed' };
+  return { verdict: 'PASS', rule: 'all-of: every criterion passed' };
 }
 
 function inferMetricName(pattern: string): string {

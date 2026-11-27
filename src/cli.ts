@@ -35,11 +35,27 @@ program.command('serve').description('start the Fastify control API and dashboar
   applyRuntimeConfig(built.orchestrator, settings.current, (message) => console.log(message));
   const server = await buildServer(built.orchestrator, config.dataDir, settings);
   const { host, port } = parseAddress(config.addr);
-  const close = async (): Promise<void> => {
-    await server.close();
-    await built.close();
+  let shuttingDown = false;
+  const shutdown = async (signal: string): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[ReproLens] ${signal} received; shutting down`);
+    const force = setTimeout(() => process.exit(1), 10_000);
+    try {
+      await server.close();
+      await built.close();
+      clearTimeout(force);
+      process.exit(0);
+    } catch (error) {
+      console.error('[ReproLens] shutdown failed', error);
+      clearTimeout(force);
+      process.exit(1);
+    }
   };
-  process.once('SIGINT', () => { void close().then(() => process.exit(0)); });
+  process.once('SIGINT', () => { void shutdown('SIGINT'); });
+  process.once('SIGTERM', () => { void shutdown('SIGTERM'); });
+  process.on('unhandledRejection', (error) => console.error('[ReproLens] unhandled rejection', error));
+  process.on('uncaughtException', (error) => { console.error('[ReproLens] uncaught exception', error); void shutdown('uncaughtException'); });
   await server.listen({ host, port });
   console.log(`ReproLens listening on http://${config.addr}`);
 });

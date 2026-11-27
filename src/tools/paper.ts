@@ -147,7 +147,7 @@ async function extractPdf(raw: Buffer, visualDir: string, renderPages: boolean):
       caption_candidates: captionCandidates,
     });
   }
-  await document.destroy();
+  await loading.destroy();
   const text = pages.map((page) => page.text).filter(Boolean).join('\n\n');
   return { text, pages, visuals };
 }

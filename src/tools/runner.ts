@@ -29,6 +29,8 @@ export interface ExecutionResult {
   durationMs: number;
   stdout: string;
   stderr: string;
+  stdoutTruncated?: boolean;
+  stderrTruncated?: boolean;
   stdoutPath?: string;
   stderrPath?: string;
   env: Record<string, string>;
@@ -125,6 +127,8 @@ export interface ProcessOutcome {
   code: number;
   stdout: string;
   stderr: string;
+  stdoutTruncated: boolean;
+  stderrTruncated: boolean;
   timedOut: boolean;
   startedAt: string;
   finishedAt: string;
@@ -137,6 +141,7 @@ export interface RunProcessOptions {
   timeoutMs: number;
   signal?: AbortSignal;
   stdin?: string;
+  maxOutputBytes?: number;
   onOutput?: (stream: 'stdout' | 'stderr', text: string) => void;
 }
 
@@ -146,11 +151,36 @@ export function runProcess(binary: string, args: string[], options: RunProcessOp
     const started = Date.now();
     let stdout = '';
     let stderr = '';
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
     let timedOut = false;
     let aborted = false;
     let settled = false;
+    const maxOutputBytes = Math.max(1, options.maxOutputBytes ?? 8 * 1024 * 1024);
     const emit = (stream: 'stdout' | 'stderr', text: string): void => {
       if (text) options.onOutput?.(stream, text);
+    };
+    const capture = (stream: 'stdout' | 'stderr', text: string): void => {
+      const used = stream === 'stdout' ? stdoutBytes : stderrBytes;
+      if (used >= maxOutputBytes) {
+        if (stream === 'stdout') stdoutTruncated = true;
+        else stderrTruncated = true;
+        return;
+      }
+      const buffer = Buffer.from(text);
+      const remaining = maxOutputBytes - used;
+      const accepted = buffer.length <= remaining ? text : buffer.subarray(0, remaining).toString('utf8');
+      if (stream === 'stdout') {
+        stdout += accepted;
+        stdoutBytes += Buffer.byteLength(accepted);
+        if (buffer.length > remaining) stdoutTruncated = true;
+      } else {
+        stderr += accepted;
+        stderrBytes += Buffer.byteLength(accepted);
+        if (buffer.length > remaining) stderrTruncated = true;
+      }
     };
     const child = spawn(binary, args, {
       cwd: options.cwd,
@@ -171,6 +201,8 @@ export function runProcess(binary: string, args: string[], options: RunProcessOp
         code,
         stdout,
         stderr,
+        stdoutTruncated,
+        stderrTruncated,
         timedOut,
         startedAt,
         finishedAt: new Date().toISOString(),
@@ -186,8 +218,8 @@ export function runProcess(binary: string, args: string[], options: RunProcessOp
       child.kill('SIGKILL');
     };
     options.signal?.addEventListener('abort', onAbort, { once: true });
-    child.stdout?.on('data', (chunk: Buffer) => { const text = chunk.toString(); stdout += text; emit('stdout', text); });
-    child.stderr?.on('data', (chunk: Buffer) => { const text = chunk.toString(); stderr += text; emit('stderr', text); });
+    child.stdout?.on('data', (chunk: Buffer) => { const text = chunk.toString(); capture('stdout', text); emit('stdout', text); });
+    child.stderr?.on('data', (chunk: Buffer) => { const text = chunk.toString(); capture('stderr', text); emit('stderr', text); });
     child.on('error', (error) => finish(-1, error));
     child.on('close', (code) => {
       if (aborted && !timedOut) {
@@ -226,6 +258,8 @@ export async function writeRunEvidence(request: ExecutionRequest, result: Execut
     env: result.env,
     stdout: 'stdout.log',
     stderr: 'stderr.log',
+    stdout_truncated: result.stdoutTruncated ?? false,
+    stderr_truncated: result.stderrTruncated ?? false,
     gpu: result.gpu,
     provider: result.provider,
     remote_job_id: result.remoteJobId,
